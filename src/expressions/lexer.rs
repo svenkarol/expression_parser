@@ -1,13 +1,14 @@
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub enum Token {
-    ADDOP(String, i32),
-    MULOP(String, i32),
-    NUM(String, i32),
-    WS(String, i32),
-    UNKNOWN(String, i32),
-    INIT
+pub struct Token {
+    ttype : TokenType,
+    txt : Option<String>,
+    pos : Option<i32>
 }
+
+#[derive(Debug)]
+#[derive(PartialEq)]
+pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
@@ -81,12 +82,12 @@ pub fn tokenize(text: &str) -> Vec<Token> {
 
 fn state_to_token(state: &State, val: String, pos: i32) -> Token {
     match state {
-        State::INIT => Token::INIT,
-        State::ADDOP => Token::ADDOP(val, pos),
-        State::MULOP => Token::MULOP(val, pos),
-        State::WS => Token::WS(val, pos),
-        State::NUM => Token::NUM(val, pos),
-        State::UNKNOWN => Token::UNKNOWN(val, pos)
+        State::INIT     => Token { ttype: TokenType::INIT, txt: None, pos: None },
+        State::ADDOP    => Token { ttype: TokenType::ADDOP, txt: Some(val), pos: Some(pos) },
+        State::MULOP    => Token { ttype: TokenType::MULOP, txt: Some(val), pos: Some(pos) },
+        State::WS       => Token { ttype: TokenType::WS, txt: Some(val), pos: Some(pos)},
+        State::NUM      => Token { ttype: TokenType::NUM, txt: Some(val), pos: Some(pos)},
+        State::UNKNOWN  => Token { ttype: TokenType::UNKNOWN, txt: Some(val), pos: Some(pos)}
     }
 }
 
@@ -94,24 +95,25 @@ fn state_to_token(state: &State, val: String, pos: i32) -> Token {
 mod tests {
     use crate::expressions::lexer::tokenize;
     use crate::expressions::lexer::Token;
+    use crate::expressions::lexer::TokenType;
 
     #[test]
     fn test_tokenize() {
         let text = " 4 +   534 * ac 4";
         let tokens_expected = vec![
-            Token::INIT, 
-            Token::WS(" ".to_string(), 0), 
-            Token::NUM("4".to_string(), 1),
-            Token::WS(" ".to_string(), 2),
-            Token::ADDOP("+".to_string(), 3),
-            Token::WS("   ".to_string(), 4),
-            Token::NUM("534".to_string(), 7),
-            Token::WS(" ".to_string(), 10),
-            Token::MULOP("*".to_string(), 11),
-            Token::WS(" ".to_string(), 12),
-            Token::UNKNOWN("ac".to_string(), 13),
-            Token::WS(" ".to_string(), 15),
-            Token::NUM("4".to_string(), 16)];
+            Token { ttype: TokenType::INIT, txt: None, pos: None },  
+            Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(0) }, 
+            Token { ttype: TokenType::NUM, txt: Some("4".to_string()), pos: Some(1) }, 
+            Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(2) }, 
+            Token { ttype: TokenType::ADDOP, txt: Some("+".to_string()), pos: Some(3) },
+            Token { ttype: TokenType::WS, txt: Some("   ".to_string()), pos: Some(4) }, 
+            Token { ttype: TokenType::NUM, txt: Some("534".to_string()), pos: Some(7) }, 
+            Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(10) }, 
+            Token { ttype: TokenType::MULOP, txt: Some("*".to_string()), pos: Some(11) }, 
+            Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(12) }, 
+            Token { ttype: TokenType::UNKNOWN, txt: Some("ac".to_string()), pos: Some(13) },
+            Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(15) },
+            Token { ttype: TokenType::NUM, txt: Some("4".to_string()), pos: Some(16) }];
         let tokens_computed = tokenize(text);
         assert_eq!(tokens_computed, tokens_expected);
     }
