@@ -1,7 +1,8 @@
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub enum Token {
-    OP(String, i32),
+    ADDOP(String, i32),
+    MULOP(String, i32),
     NUM(String, i32),
     WS(String, i32),
     UNKNOWN(String, i32),
@@ -9,7 +10,7 @@ pub enum Token {
 }
 
 #[derive(PartialEq)]
-enum State { WS, NUM, OP, INIT, UNKNOWN }
+enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
 pub fn tokenize(text: &str) -> Vec<Token> {
     let mut tokens:Vec<Token> = Vec::new();
@@ -20,12 +21,19 @@ pub fn tokenize(text: &str) -> Vec<Token> {
 
     for (i, ch) in &mut chars {
         match ch {
-            '*' | '/' | '+' | '-' => {
+            '+' | '-' => {
                 tokens.push(state_to_token(&state, current, start_pos));
                 start_pos = i as i32;
                 current = String::new();
                 current.push(ch);
-                state = State::OP;
+                state = State::ADDOP;
+            },
+            '*' | '/'  => {
+                tokens.push(state_to_token(&state, current, start_pos));
+                start_pos = i as i32;
+                current = String::new();
+                current.push(ch);
+                state = State::MULOP;
             },
             '0' ..= '9' => {
                 if state == State::NUM {
@@ -74,7 +82,8 @@ pub fn tokenize(text: &str) -> Vec<Token> {
 fn state_to_token(state: &State, val: String, pos: i32) -> Token {
     match state {
         State::INIT => Token::INIT,
-        State::OP => Token::OP(val, pos),
+        State::ADDOP => Token::ADDOP(val, pos),
+        State::MULOP => Token::MULOP(val, pos),
         State::WS => Token::WS(val, pos),
         State::NUM => Token::NUM(val, pos),
         State::UNKNOWN => Token::UNKNOWN(val, pos)
@@ -94,11 +103,11 @@ mod tests {
             Token::WS(" ".to_string(), 0), 
             Token::NUM("4".to_string(), 1),
             Token::WS(" ".to_string(), 2),
-            Token::OP("+".to_string(), 3),
+            Token::ADDOP("+".to_string(), 3),
             Token::WS("   ".to_string(), 4),
             Token::NUM("534".to_string(), 7),
             Token::WS(" ".to_string(), 10),
-            Token::OP("*".to_string(), 11),
+            Token::MULOP("*".to_string(), 11),
             Token::WS(" ".to_string(), 12),
             Token::UNKNOWN("ac".to_string(), 13),
             Token::WS(" ".to_string(), 15),
