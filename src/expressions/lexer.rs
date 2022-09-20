@@ -1,7 +1,9 @@
+use std::io::{BufReader, Read};
+
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub struct Token {
-    pub ttype : TokenType,
+pub struct Token<T> {
+    pub ttype : T,
     pub txt : Option<String>,
     pub pos : Option<i32>
 }
@@ -13,8 +15,22 @@ pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
-pub fn tokenize(text: &str) -> Vec<Token> {
-    let mut tokens:Vec<Token> = Vec::new();
+/*pub struct Lexer<T: Read> {
+    stream: BufReader<T>
+}*/
+
+pub trait Lexer<T> {  
+    fn match_token(&mut self, ttype: T) -> Option<&&Token<T>>;
+
+    fn consume(&mut self) -> Option<&Token<T>>;
+}
+
+//impl<T> Lexer<TokenType> for BufReader<T> {
+
+//}
+
+pub fn tokenize(text: &str) -> Vec<Token<TokenType>> {
+    let mut tokens:Vec<Token<TokenType>> = Vec::new();
     let mut state = State::INIT;
     let mut start_pos: i32 = -1;
     let mut current = String::new();
@@ -79,7 +95,7 @@ pub fn tokenize(text: &str) -> Vec<Token> {
     tokens
 }
 
-fn state_to_token(state: &State, val: String, pos: i32) -> Token {
+fn state_to_token(state: &State, val: String, pos: i32) -> Token<TokenType> {
     match state {
         State::INIT     => Token { ttype: TokenType::INIT, txt: None, pos: None },
         State::ADDOP    => Token { ttype: TokenType::ADDOP, txt: Some(val), pos: Some(pos) },

@@ -3,11 +3,11 @@ use crate::expressions::lexer::TokenType;
 use crate::expressions::lexer::tokenize;
 use std::iter::Peekable;
 
-pub struct ExpParser<'a, T : Iterator<Item = &'a Token>> {
+pub struct ExpParser<'a, T : Iterator<Item = &'a Token<TokenType>>> {
     source: Peekable<T>
 }
 
-impl<'a, T : Iterator<Item = &'a Token>> ExpParser<'a, T> {
+impl<'a, T : Iterator<Item = &'a Token<TokenType>>> ExpParser<'a, T> {
 
     // Constructor-like function
     pub fn new(source: Peekable<T>) -> Self {
@@ -67,7 +67,7 @@ impl<'a, T : Iterator<Item = &'a Token>> ExpParser<'a, T> {
         }
     }
 
-    fn match_token(&mut self, ttype: TokenType) -> Option<&&Token> {
+    fn match_token(&mut self, ttype: TokenType) -> Option<&&Token<TokenType>> {
         let mut peek = self.source.peek();
     
         while let Some(tok) = peek {
@@ -85,7 +85,7 @@ impl<'a, T : Iterator<Item = &'a Token>> ExpParser<'a, T> {
             .filter(|next| next.ttype == ttype)
     }
 
-    fn consume(&mut self) -> Option<&Token> { self.source.next() }
+    fn consume(&mut self) -> Option<&Token<TokenType>> { self.source.next() }
 
 }
 
