@@ -1,14 +1,14 @@
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub struct Token {
-    ttype : TokenType,
-    txt : Option<String>,
-    pos : Option<i32>
+    pub ttype : TokenType,
+    pub txt : Option<String>,
+    pub pos : Option<i32>
 }
 
 #[derive(Debug)]
 #[derive(PartialEq)]
-pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
+pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
@@ -74,9 +74,8 @@ pub fn tokenize(text: &str) -> Vec<Token> {
             }
         }
     }    
-    if chars.peek().is_none() {
-        tokens.push(state_to_token(&state, current, start_pos));
-    }
+    tokens.push(state_to_token(&state, current, start_pos));
+    tokens.push(Token { ttype: TokenType::END, txt: None, pos: None });
     tokens
 }
 
@@ -113,7 +112,8 @@ mod tests {
             Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(12) }, 
             Token { ttype: TokenType::UNKNOWN, txt: Some("ac".to_string()), pos: Some(13) },
             Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(15) },
-            Token { ttype: TokenType::NUM, txt: Some("4".to_string()), pos: Some(16) }];
+            Token { ttype: TokenType::NUM, txt: Some("4".to_string()), pos: Some(16) },
+            Token { ttype: TokenType::END, txt: None, pos: None }] ;
         let tokens_computed = tokenize(text);
         assert_eq!(tokens_computed, tokens_expected);
     }
