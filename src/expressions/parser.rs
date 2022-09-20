@@ -116,7 +116,14 @@ mod tests {
 
     #[test]
     fn test_parse_empty_fail() {
-        let text = " ";
+        let text = "";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_ws_fail() {
+        let text = "       \n\t  ";
         let result = parse(text);
         assert_eq!(result, false);
     }
