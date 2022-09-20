@@ -79,7 +79,7 @@ impl<'a, T : Iterator<Item = &'a Token>> ExpParser<'a, T> {
                 break;
             }
         }
-        
+
         self.source
             .peek()
             .filter(|next| next.ttype == ttype)
@@ -106,5 +106,54 @@ mod tests {
         let result = parse(text);
         assert_eq!(result, true);
     }
-}
 
+    #[test]
+    fn test_parse_fail() {
+        let text = " 4 ++ 6 * 4 / 10";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_empty_fail() {
+        let text = " ";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_number_ok() {
+        let text = " 42 ";
+        let result = parse(text);
+        assert_eq!(result, true);
+    }
+
+    #[test]
+    fn test_parse_mulop_fail() {
+        let text = " - ";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_mulop_one_arg_fail() {
+        let text = " -4 ";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_ops_two_args_fail() {
+        let text = "4 *-4 ";
+        let result = parse(text);
+        assert_eq!(result, false);
+    }
+
+    #[test]
+    fn test_parse_addop_two_args_ok() {
+        let text = "4 -4 ";
+        let result = parse(text);
+        assert_eq!(result, true);
+    }
+
+}
