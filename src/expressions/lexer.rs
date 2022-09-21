@@ -1,5 +1,5 @@
-use std::io::{BufReader, Read};
-
+use std::io::{BufReader, Read, BufRead, Result};
+use utf8_chars::BufReadCharsExt;
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub struct Token<T> {
@@ -15,19 +15,171 @@ pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
-/*pub struct Lexer<T: Read> {
-    stream: BufReader<T>
-}*/
-
-pub trait Lexer<T> {  
-    fn match_token(&mut self, ttype: T) -> Option<&&Token<T>>;
-
-    fn consume(&mut self) -> Option<&Token<T>>;
+pub struct ExpLexer<T> {  
+    stream : BufReader<T>,
+    token_pos : i32,
+    next : Option<Token<TokenType>>,
+    peek : Result<Option<char>>
 }
 
-//impl<T> Lexer<TokenType> for BufReader<T> {
+impl<T> ExpLexer<T> {
+    pub fn new(stream: BufReader<T>) -> ExpLexer<T> {
+        ExpLexer { 
+            stream: stream,
+            token_pos: -1, 
+            next: None,
+            peek: Ok(None)
+         }
+    }
+}
 
-//}
+pub trait Lexer<T> {
+    fn match_token(&mut self, ttype: T) -> &Option<Token<T>>;
+
+    fn consume(&mut self) -> Option<Token<T>>;
+}
+
+trait ExpLexerHelpers<T> {
+    fn next_token(&mut self) -> &Option<Token<TokenType>>;
+}
+
+impl<T> ExpLexerHelpers<T> for ExpLexer<T> 
+    where T: Read, T: BufReadCharsExt {
+    
+    fn next_token(&mut self) -> &Option<Token<TokenType>> { 
+        
+        if let Some(Token { ttype: TokenType::END, txt:_, pos:_ }) = &self.next {
+            return &self.next;
+        }
+
+        if let Ok(None) = self.peek {
+            self.peek = self.stream.read_char()
+        }
+
+        let mut current = String::new();
+        let mut token:Option<Token<TokenType>> = None;
+        let mut state = State::INIT;
+        let token_pos = self.token_pos;
+        
+        loop {
+            if let Ok(Some(ch)) = self.peek {
+                self.peek = self.stream.read_char();
+                self.token_pos += 1;
+                match ch {
+                    '+' | '-' => {
+                        if state == State::INIT {
+                            state = State::ADDOP;
+                            current = String::new();
+                            current.push(ch);
+                        }
+                        else {
+                            token = Some(state_to_token(&state, current, token_pos));
+                            break;
+                        }
+                    },
+                    '*' | '/'  => {
+                        if state == State::INIT {
+                            state = State::MULOP;
+                            current.push(ch);
+                        }
+                        else {
+                            token = Some(state_to_token(&state, current, token_pos));
+                            break;
+                        }
+                    },
+                    '0' ..= '9' => {
+                        if state == State::INIT {
+                            state = State::NUM;
+                            current.push(ch);
+                        }
+                        else if state == State::NUM {
+                            current.push(ch);
+                        }
+                        else {
+                            token = Some(state_to_token(&state, current, token_pos));
+                            break;
+                        }
+                    },
+                    '\r' | '\n' | ' ' | '\t' => {
+                        if state == State::INIT {
+                            state = State::WS;
+                            current.push(ch);
+                        }
+                        else if state == State::WS {
+                            current.push(ch);
+                        }
+                        else {
+                            token = Some(state_to_token(&state, current, token_pos));
+                            break;
+                        }
+                    },
+                    _ => {
+                        if state == State::INIT {
+                           state = State::UNKNOWN;
+                           current.push(ch);
+                        }
+                        else if state == State::UNKNOWN {
+                           current.push(ch);
+                        }
+                        else {
+                           token = Some(state_to_token(&state, current, token_pos)); 
+                           break;
+                        }
+                    }
+                }
+            }
+            else if let Ok(None) = self.peek {
+                if state != State::INIT  {
+                    token = Some(state_to_token(&state, current, token_pos)); 
+                    break;
+                }
+                else if let Some(Token{ttype, txt:_, pos:_}) = &self.next {
+                    token = match ttype {
+                        TokenType::END => None,
+                        _ => Some(Token { ttype: TokenType::END, txt: None, pos: None })
+                    }
+                }
+            }
+            else {
+                break;
+            }
+        }
+        self.next = token;
+        &self.next
+    }
+}
+
+impl<T> Lexer<TokenType> for ExpLexer<T> 
+    where T: Read, T: BufReadCharsExt, T: ExpLexerHelpers<T> {
+
+    fn match_token(&mut self, ttype: TokenType) -> &Option<Token<TokenType>> {
+        if self.next.is_none() && self.peek.is_ok() {
+            self.next_token();
+        }
+
+        if let Some(tok) = &self.next {
+            if tok.ttype == ttype {
+                return &self.next
+            }
+        }
+
+        &None
+    }
+
+    fn consume(&mut self) -> Option<Token<TokenType>> {
+        if self.next.is_none() && self.peek.is_ok() {
+            self.next_token();
+        }
+        
+        if self.next.is_some() {
+            let mut_temp = self.next.take();
+            self.next_token();
+            return mut_temp;
+        }
+        
+        None
+    }
+}
 
 pub fn tokenize(text: &str) -> Vec<Token<TokenType>> {
     let mut tokens:Vec<Token<TokenType>> = Vec::new();
