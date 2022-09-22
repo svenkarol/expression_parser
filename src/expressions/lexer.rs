@@ -1,5 +1,6 @@
 use std::io::{BufReader, Read, Result};
 use utf8_chars::BufReadCharsExt;
+
 #[derive(Debug)]
 #[derive(PartialEq)]
 pub struct Token<T> {
@@ -12,6 +13,8 @@ pub struct Token<T> {
 #[derive(PartialEq)]
 pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 
+pub type ExpToken = Token<TokenType>;
+
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
@@ -22,7 +25,35 @@ pub struct ExpLexer<T> {
     peek : Result<Option<char>>
 }
 
+impl ExpLexer<&[u8]> {
+    
+    pub fn from_str(text: &str) -> ExpLexer<&[u8]> {
+        let stream = BufReader::new(text.as_bytes());
+        ExpLexer::new(stream)
+    }
+
+    pub fn tokenize(&mut self) -> Vec<Token<TokenType>> {
+        let mut tokens:Vec<Token<TokenType>> = Vec::new();
+        tokens.push(state_to_token(&State::INIT, String::new(), -1));
+ 
+        while let Some(token) = self.take_token() {
+            match &token.ttype {
+                &TokenType::END => {
+                    tokens.push(token);
+                    break;
+                }
+                _ => { 
+                    tokens.push(token);
+                 }
+            }
+        }
+        tokens
+    }
+
+}
+
 impl<T> ExpLexer<T> where T: Read, T: BufReadCharsExt {
+    
     pub fn new(stream: BufReader<T>) -> ExpLexer<T> {
         ExpLexer { 
             stream: stream,
@@ -31,10 +62,12 @@ impl<T> ExpLexer<T> where T: Read, T: BufReadCharsExt {
             peek: Ok(None)
          }
     }
+
+   
 }
 
 pub trait Lexer<T> {
-    fn match_token(&mut self, ttype: T) -> &Option<Token<T>>;
+    fn match_token(&mut self, ttype: &T) -> &Option<Token<T>>;
 
     fn take_token(&mut self) -> Option<Token<T>>;
 }
@@ -146,13 +179,13 @@ impl<T> ExpLexerHelpers<T> for ExpLexer<T>
 impl<T> Lexer<TokenType> for ExpLexer<T> 
     where T: Read, T: BufReadCharsExt {
 
-    fn match_token(&mut self, ttype: TokenType) -> &Option<Token<TokenType>> {
+    fn match_token(&mut self, ttype: &TokenType) -> &Option<Token<TokenType>> {
         if self.next.is_none() && self.peek.is_ok() {
             self.next_token();
         }
 
         if let Some(tok) = &self.next {
-            if tok.ttype == ttype {
+            if tok.ttype.eq(ttype) {
                 return &self.next
             }
         }
@@ -176,22 +209,7 @@ impl<T> Lexer<TokenType> for ExpLexer<T>
 }
 
 pub fn tokenize(text: &str) -> Vec<Token<TokenType>> {
-    let mut tokens:Vec<Token<TokenType>> = Vec::new();
-    tokens.push(state_to_token(&State::INIT, String::new(), -1));
-    let stream = BufReader::new(text.as_bytes());
-    let mut lexer = ExpLexer::new(stream);
-    while let Some(token) = lexer.take_token() {
-        match &token.ttype {
-            &TokenType::END => {
-                tokens.push(token);
-                break;
-            }
-            _ => { 
-                tokens.push(token);
-             }
-        }
-    }
-    tokens
+    ExpLexer::from_str(text).tokenize()
 }
 
 fn state_to_token(state: &State, val: String, pos: i32) -> Token<TokenType> {
@@ -207,12 +225,76 @@ fn state_to_token(state: &State, val: String, pos: i32) -> Token<TokenType> {
 
 #[cfg(test)]
 mod tests {
-    use crate::expressions::lexer::tokenize;
-    use crate::expressions::lexer::Token;
-    use crate::expressions::lexer::TokenType;
+    use super::{Token, TokenType, ExpLexer, Lexer};
+    use std::{io::{BufReader}};
+    use pretty_assertions::{assert_eq};
 
     #[test]
-    fn test_tokenize() {
+    fn test_explexer_match_empty_string() {
+        let text = "";
+        let stream = BufReader::new(text.as_bytes());
+        let mut lexer = ExpLexer::new(stream);
+        
+        let token1_matched = lexer.match_token(&TokenType::END);
+        assert!(token1_matched.is_some());
+        let token1_consumed = lexer.take_token();
+        assert!(token1_consumed.is_some());
+        assert_eq!(token1_consumed.expect("Should not happen.").ttype, TokenType::END);
+        
+        let token2_matched = lexer.match_token(&TokenType::END);
+        assert!(token2_matched.is_some());
+        let token2_consumed = lexer.take_token();
+        assert!(token2_consumed.is_some());
+        assert_eq!(&token2_consumed.expect("Should not happen.").ttype, &TokenType::END);
+    }
+
+    fn test_explexer_match_str(match_str: &str, ttype: &TokenType) {
+        let stream = BufReader::new(match_str.as_bytes());
+        let mut lexer = ExpLexer::new(stream);
+        
+        let token1_matched = lexer.match_token(ttype);
+        assert!(token1_matched.is_some());
+       
+        let token1_consumed = lexer.take_token();
+        assert!(token1_consumed.is_some());
+        
+        let token1_val = token1_consumed.expect("Should not happen.");
+        assert_eq!(&token1_val.ttype, ttype);
+        assert!(token1_val.txt.is_some());
+        let text_token = token1_val.txt.as_ref().expect("Should not happen!");
+        assert_eq!(text_token, match_str);
+
+        let token2_matched = lexer.match_token(&TokenType::END);
+        assert!(token2_matched.is_some());
+    }
+
+    #[test]
+    fn test_explexer_match_ws_string() {
+        test_explexer_match_str("   ", &TokenType::WS)
+    }
+
+    #[test]
+    fn test_explexer_match_num_string() {
+        test_explexer_match_str("1234567", &TokenType::NUM)
+    }
+
+    #[test]
+    fn test_explexer_match_unknown_string() {
+        test_explexer_match_str("%$§&)asdasd", &TokenType::UNKNOWN)
+    }
+
+    #[test]
+    fn test_explexer_match_addop_string() {
+        test_explexer_match_str("-", &TokenType::ADDOP)
+    }
+
+    #[test]
+    fn test_explexer_match_mulop_string() {
+        test_explexer_match_str("/", &TokenType::MULOP)
+    }
+
+    #[test]
+    fn test_tokenize_long_expression_ok() {
         let text = " 4 +   534 * ac 4";
         let tokens_expected = vec![
             Token { ttype: TokenType::INIT, txt: None, pos: None },  
@@ -229,7 +311,17 @@ mod tests {
             Token { ttype: TokenType::WS, txt: Some(" ".to_string()), pos: Some(15) },
             Token { ttype: TokenType::NUM, txt: Some("4".to_string()), pos: Some(16) },
             Token { ttype: TokenType::END, txt: None, pos: None }] ;
-        let tokens_computed = tokenize(text);
+        let tokens_computed = ExpLexer::from_str(text).tokenize();
+        assert_eq!(tokens_computed, tokens_expected);
+    }
+
+    #[test]
+    fn test_tokenize_empty_expression() {
+        let text = "";
+        let tokens_expected = vec![
+            Token { ttype: TokenType::INIT, txt: None, pos: None },
+            Token { ttype: TokenType::END, txt: None, pos: None }] ;
+        let tokens_computed = ExpLexer::from_str(text).tokenize();
         assert_eq!(tokens_computed, tokens_expected);
     }
 }
