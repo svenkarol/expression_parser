@@ -1,23 +1,26 @@
-use crate::expressions::lexer::Token;
 use crate::expressions::lexer::TokenType;
+use crate::expressions::lexer::ExpToken;
 use crate::expressions::lexer::tokenize;
 use std::iter::Peekable;
 
-pub struct ExpParser<'a, T : Iterator<Item = &'a Token<TokenType>>> {
+/// A parser of simple arithmetic expressions using an [Iterator] source.
+pub struct ExpParser<'a, T : Iterator<Item = &'a ExpToken>> {
     source: Peekable<T>
 }
 
-impl<'a, T : Iterator<Item = &'a Token<TokenType>>> ExpParser<'a, T> {
+impl<'a, T : Iterator<Item = &'a ExpToken>> ExpParser<'a, T> {
 
-    // Constructor-like function
+    /// Creates a fresh instance from the given iterator.
     pub fn new(source: Peekable<T>) -> Self {
         Self { source }
     }
     
+    /// Performs the parsing. Currently this only checks whether the content is an expression or not.
     pub fn parse(&mut self) -> bool {
         self.start().is_some()
     }
 
+    /// Function that corresponds to the grammar's start symbol
     fn start(&mut self) -> Option<()> {      
         self.match_token(TokenType::INIT)
             .map(|_|())
@@ -67,7 +70,7 @@ impl<'a, T : Iterator<Item = &'a Token<TokenType>>> ExpParser<'a, T> {
         }
     }
 
-    fn match_token(&mut self, ttype: TokenType) -> Option<&&Token<TokenType>> {
+    fn match_token(&mut self, ttype: TokenType) -> Option<&&ExpToken> {
         let mut peek = self.source.peek();
     
         while let Some(tok) = peek {
@@ -85,10 +88,12 @@ impl<'a, T : Iterator<Item = &'a Token<TokenType>>> ExpParser<'a, T> {
             .filter(|next| next.ttype == ttype)
     }
 
-    fn consume(&mut self) -> Option<&Token<TokenType>> { self.source.next() }
+    fn consume(&mut self) -> Option<&ExpToken> { self.source.next() }
 
 }
 
+/// Driver function that takes a string slice, tokenizes the slice using [super::lexer::ExpLexer], 
+/// obtaining a [Vec] of [ExpToken], instantiating an [ExpParser] and performing the parse.
 pub fn parse(text: &str) -> bool {
     let tokens = tokenize(text);
     let peeker = tokens.iter().peekable();
