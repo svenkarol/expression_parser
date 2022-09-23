@@ -39,3 +39,6 @@ This is the grammar that was used to create the toy example.
 
 ## Usage
 Install Rust and Cargo on your system as described [here](https://www.rust-lang.org/tools/install). Clone this repo, `cd` to the checkout directory and run `cargo test`. This should just compile the sources and run the accompanied unit tests.
+
+## License
+For license information just read the license file.
