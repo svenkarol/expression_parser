@@ -1,5 +1,5 @@
 # Expression Parser
-A toy example of a recursive descent parser and lexer for a small arithmetic expressions language written in Rust. Except parsing, it does not do anything yet. Example expression: `0 + 8 * 15`.
+A toy example of a recursive descent parser and lexer for a small arithmetic expressions language written in [Rust](https://www.rust-lang.org/). Except parsing, it does not do anything yet. Example expression: `0 + 8 * 15`. I created this to satisfy my curiosity about the language.
 
 ## Grammar
 ### Tokens
