@@ -3,6 +3,7 @@ use utf8_chars::BufReadCharsExt;
 
 #[derive(Debug)]
 #[derive(PartialEq)]
+/// Represents tokens recognized by a lexical analyser. Used by the [Lexer] trait.
 pub struct Token<T> {
     pub ttype : T,
     pub txt : Option<String>,
@@ -11,6 +12,7 @@ pub struct Token<T> {
 
 #[derive(Debug)]
 #[derive(PartialEq)]
+/// Kind of tokens that are recognized by an [ExpLexer].
 pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 
 pub type ExpToken = Token<TokenType>;
@@ -18,22 +20,26 @@ pub type ExpToken = Token<TokenType>;
 #[derive(PartialEq)]
 enum State { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN }
 
+/// The expression lexer that tokenizes a given [BufReader], e.g., bytes of a [String] or a File.
 pub struct ExpLexer<T> {  
     stream : BufReader<T>,
     token_pos : i32,
-    next : Option<Token<TokenType>>,
+    next : Option<ExpToken>,
     peek : Result<Option<char>>
 }
 
+/// Defaul impl of [ExpLexer] for [&[u8]]
 impl ExpLexer<&[u8]> {
     
+    /// Constructs an [ExpLexer] from a given [str] slice.
     pub fn from_str(text: &str) -> ExpLexer<&[u8]> {
         let stream = BufReader::new(text.as_bytes());
         ExpLexer::new(stream)
     }
 
-    pub fn tokenize(&mut self) -> Vec<Token<TokenType>> {
-        let mut tokens:Vec<Token<TokenType>> = Vec::new();
+    /// Recognizes all expression tokens in the [Lexer]'s and creates a corresponding [Vec]tor of [ExpToken]s. 
+    pub fn tokenize(&mut self) -> Vec<ExpToken> {
+        let mut tokens:Vec<ExpToken> = Vec::new();
         tokens.push(state_to_token(&State::INIT, String::new(), -1));
  
         while let Some(token) = self.take_token() {
@@ -52,8 +58,10 @@ impl ExpLexer<&[u8]> {
 
 }
 
+/// Default impl of the [ExpLexer] that provides a constructor function.
 impl<T> ExpLexer<T> where T: Read, T: BufReadCharsExt {
     
+    /// Creates a fresh [ExpLexer] object from the given [BufReader].
     pub fn new(stream: BufReader<T>) -> ExpLexer<T> {
         ExpLexer { 
             stream: stream,
@@ -62,24 +70,36 @@ impl<T> ExpLexer<T> where T: Read, T: BufReadCharsExt {
             peek: Ok(None)
          }
     }
-
-   
 }
 
+/// A very basic lexer API that provides two functions for matching (i.e. comparing)
+/// an expected token to the next token and for taking the next token from an underlying
+/// input source.
 pub trait Lexer<T> {
+
+    /// Matches the next token in the input and compares with the given ttype. If the type
+    /// is equal to the matched type, the function borrows a reference to the matched token. The 
+    /// token remains in the ownership of the lexer. If the types do not match, just &[None] is 
+    /// returned. If no more tokens are available, the function returns an END token.
     fn match_token(&mut self, ttype: &T) -> &Option<Token<T>>;
 
+    /// Matches the next token in the input stream and returns the matched token, transferring ownership
+    /// to the caller. If no more tokens are available, an END token is returned.
     fn take_token(&mut self) -> Option<Token<T>>;
 }
 
+/// This is an internal helper-trait that handles the actual token recognition in a
+/// reusable way.
 trait ExpLexerHelpers<T> {
-    fn next_token(&mut self) -> &Option<Token<TokenType>>;
+    fn next_token(&mut self) -> &Option<ExpToken>;
 }
 
+/// The actual implementation of the token recognition.
 impl<T> ExpLexerHelpers<T> for ExpLexer<T> 
     where T: Read, T: BufReadCharsExt {
     
-    fn next_token(&mut self) -> &Option<Token<TokenType>> { 
+    /// Implements the actual recognition of expression tokens.
+    fn next_token(&mut self) -> &Option<ExpToken> { 
 
         if let Ok(None) = self.peek {
             self.peek = self.stream.read_char();
@@ -176,10 +196,15 @@ impl<T> ExpLexerHelpers<T> for ExpLexer<T>
     }
 }
 
+/// Implements the generic [Lexer] API for the [ExpLexer].
 impl<T> Lexer<TokenType> for ExpLexer<T> 
     where T: Read, T: BufReadCharsExt {
 
-    fn match_token(&mut self, ttype: &TokenType) -> &Option<Token<TokenType>> {
+    /// Matches the next token in the input and compares with the given &[TokenType]. If the type
+    /// is equal to the matched type, the function borrows a reference to the matched token. The 
+    /// token remains in the ownership of the lexer. If the types do not match, just &[None] is 
+    /// returned. If no more tokens are available, the next token will be of type [TokenType::END].
+    fn match_token(&mut self, ttype: &TokenType) -> &Option<ExpToken> {
         if self.next.is_none() && self.peek.is_ok() {
             self.next_token();
         }
@@ -193,6 +218,8 @@ impl<T> Lexer<TokenType> for ExpLexer<T>
         &None
     }
 
+    /// Matches the next token in the input stream and returns the matched token, transferring ownership
+    /// to the caller. If no more tokens are available, the next token will be of type [TokenType::END].
     fn take_token(&mut self) -> Option<Token<TokenType>> {
         if self.next.is_none() && self.peek.is_ok() {
             self.next_token();
@@ -208,7 +235,8 @@ impl<T> Lexer<TokenType> for ExpLexer<T>
     }
 }
 
-pub fn tokenize(text: &str) -> Vec<Token<TokenType>> {
+/// Takes a given [str] slice and returns a [vec] of [ExpToken]s.
+pub fn tokenize(text: &str) -> Vec<ExpToken> {
     ExpLexer::from_str(text).tokenize()
 }
 
