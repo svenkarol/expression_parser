@@ -176,6 +176,31 @@ pub fn parse(text: &str) -> bool {
     parser.parse()
 }
 
+pub fn eval(exp: &Tree) -> Result<i64, String> {
+    match exp {
+        Tree::Leaf(tk) => match tk.ttype {
+            TokenType::NUM => match &tk.txt {
+                Some(lexem) => lexem
+                    .parse::<i64>()
+                    .map_err(|err| format!("Error when converting Integer ({:?})", err.kind())),
+                _ => Err("No lexem for number token found.".to_string()),
+            },
+            _ => Err(format!(
+                "Wrong token type {:?}. Number was expected.",
+                tk.ttype
+            )),
+        },
+        Tree::Node(node) => match &node.kind {
+            NodeType::Start => if node.children.len() == 1 {
+                eval(&node.children[0])
+            }
+            else {
+                Err(format!("Expected 1 child of start, found {}.", node.children.len()))
+            }
+        },
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use crate::expressions::parser::parse;
