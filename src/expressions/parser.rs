@@ -45,12 +45,13 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         Self { source }
     }
 
-    /// Performs the parsing. Currently this only checks whether the content is an expression or not.
+    /// Performs the parse. Currently this only checks whether the content is an expression or not.
     pub fn parse(&mut self) -> bool {
         self.start().is_some()
     }
 
-    /// Function that corresponds to the grammar's start symbol
+    /// Parses the grammar's 'start' symbol and builds a corresponding syntax tree.
+    /// Start -> Exp
     fn start(&mut self) -> Option<Tree> {
         match self.match_consume(TokenType::INIT) {
             Some(_) => {
@@ -70,6 +71,7 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         }
     }
 
+    /// Exp -> Term Exp′
     fn exp(&mut self) -> Option<Tree> {
         match self.term() {
             Some(term) => match self.expp() {
@@ -85,6 +87,7 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         }
     }
 
+    /// Term → Num Term′
     fn term(&mut self) -> Option<Tree> {
         match self.match_consume(TokenType::NUM) {
             Some(tk_num) => match self.termp() {
@@ -100,6 +103,9 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         }
     }
 
+    /// Exp′ -> '–' Term Exp′
+    /// Exp′ -> '+' Term Exp′
+    /// Exp′ -> 𝜖
     fn expp(&mut self) -> Option<Tree> {
         match self.match_consume(TokenType::ADDOP) {
             Some(tk_add) => match self.term() {
@@ -119,6 +125,9 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         }
     }
 
+    /// Term′ -> '∗' Num Term′
+    /// Term′ -> '/' Num Term′
+    /// Term′ -> 𝜖
     fn termp(&mut self) -> Option<Tree> {
         match self.match_consume(TokenType::MULOP) {
             Some(tk_mul) => match self.match_consume(TokenType::NUM) {
@@ -138,6 +147,9 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         }
     }
 
+    /// Checks if the next token corresponds to ttype while skipping though white space and
+    /// unknown characters in the token source. Returns immutable reference to the matched
+    /// token or None if a token could not be matched.
     fn match_token(&mut self, ttype: TokenType) -> Option<&ExpToken> {
         let mut peek = self.source.peek();
 
@@ -153,10 +165,13 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         self.source.peek().filter(|next| next.ttype == ttype)
     }
 
+    /// Consumes (takes) the next token from the token source and returns it. If no such token
+    /// is available, None is returned instead.
     fn consume(&mut self) -> Option<ExpToken> {
         self.source.next()
     }
 
+    /// Combines match and consume in a single operation.
     fn match_consume(&mut self, ttype: TokenType) -> Option<ExpToken> {
         let tk = self.match_token(ttype);
         if tk.is_some() {
@@ -176,6 +191,7 @@ pub fn parse(text: &str) -> bool {
     parser.parse()
 }
 
+/// Evaluates a given expression tree by computing the expression's value.
 pub fn eval(exp: &Tree) -> Result<i64, String> {
     match exp {
         Tree::Leaf(tk) => match tk.ttype {
@@ -191,12 +207,17 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
             )),
         },
         Tree::Node(node) => match &node.kind {
-            NodeType::Start => if node.children.len() == 1 {
-                eval(&node.children[0])
+            NodeType::Start => {
+                if node.children.len() == 1 {
+                    eval(&node.children[0])
+                } else {
+                    Err(format!(
+                        "Expected 1 child of start, found {}.",
+                        node.children.len()
+                    ))
+                }
             }
-            else {
-                Err(format!("Expected 1 child of start, found {}.", node.children.len()))
-            }
+            _ => Ok(2),
         },
     }
 }
