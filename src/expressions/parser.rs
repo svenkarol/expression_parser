@@ -31,6 +31,30 @@ pub enum Tree {
     Leaf(ExpToken),
 }
 
+impl Tree {
+    pub fn as_node(&self) -> Result<&Node, String> {
+        match self {
+            Tree::Node(node) => Ok(node),
+            Tree::Leaf(_tk) => Err(format!("Wrong kind of tree: leaf. Node was expected.")),
+        }
+    }
+
+    pub fn as_leaf(&self) -> Result<&ExpToken, String> {
+        match self {
+            Tree::Node(_node) => Err(format!("Wrong kind of tree: node. Leaf was expected.")),
+            Tree::Leaf(tk) => Ok(tk),
+        }
+    }
+
+    pub fn is_epsilon(&self) -> bool {
+        match self {
+            Tree::Node(node) => node.children.len() == 0,
+            _ => false,
+        }
+    }
+}
+
+#[derive(Debug, PartialEq, Eq)]
 pub enum NodeType {
     Start,
     Exp,
@@ -217,8 +241,112 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
                     ))
                 }
             }
-            _ => Ok(2),
+            NodeType::Exp => {
+                if node.children.len() == 2 {
+                    eval(&node.children[0]).and_then(|val| eval_expp(&node.children[1], val))
+                } else {
+                    Err(format!(
+                        "Expected 2 children of exp, found {}.",
+                        node.children.len()
+                    ))
+                }
+            }
+            NodeType::Term => {
+                if node.children.len() == 2 {
+                    eval(&node.children[0]).and_then(|val| eval_termp(&node.children[1], val))
+                } else {
+                    Err(format!(
+                        "Expected 2 children of term, found {}.",
+                        node.children.len()
+                    ))
+                }
+            }
+            _ => Err(format!("Unexpected case.")),
         },
+    }
+}
+
+fn eval_expp(exp: &Tree, lop: i64) -> Result<i64, String> {
+    exp.as_node().and_then(|node| {
+        if node.kind == NodeType::Expp {
+            if node.children.len() == 3 {
+                eval(&node.children[1]).and_then(|rop| {
+                    node.children[0].as_leaf().and_then(|tk| {
+                        eval_addop(tk, lop, rop).and_then(|lop| {
+                            if node.children[2].is_epsilon() {
+                                Ok(lop)
+                            } else {
+                                eval_expp(&node.children[2], lop)
+                            }
+                        })
+                    })
+                })
+            } else {
+                Err(format!(
+                    "Expected 3 children of expp, found {}.",
+                    node.children.len()
+                ))
+            }
+        } else {
+            Err(format!("Node type expp expected."))
+        }
+    })
+}
+
+fn eval_termp(exp: &Tree, lop: i64) -> Result<i64, String> {
+    exp.as_node().and_then(|node| {
+        if node.kind == NodeType::Termp {
+            if node.children.len() == 3 {
+                eval(&node.children[1]).and_then(|rop| {
+                    node.children[0].as_leaf().and_then(|tk| {
+                        eval_mulop(tk, lop, rop).and_then(|lop| {
+                            if node.children[2].is_epsilon() {
+                                Ok(lop)
+                            } else {
+                                eval_termp(&node.children[2], lop)
+                            }
+                        })
+                    })
+                })
+            } else {
+                Err(format!(
+                    "Expected 3 children of termp, found {}.",
+                    node.children.len()
+                ))
+            }
+        } else {
+            Err(format!("Node type termp expected."))
+        }
+    })
+}
+
+fn eval_addop(tk: &ExpToken, lop: i64, rop: i64) -> Result<i64, String> {
+    if tk.ttype == TokenType::ADDOP {
+        match &tk.txt {
+            Some(operator) => match operator.as_str() {
+                "+" => Ok(lop + rop),
+                "-" => Ok(lop - rop),
+                _ => Err(format!("Wrong operator text (should not happen).")),
+            },
+            None => Err(format!("No operator text (should not happen).")),
+        }
+    } else {
+        Err(format!("Got wrong token type, ADDOP expected"))
+    }
+}
+
+fn eval_mulop(tk: &ExpToken, lop: i64, rop: i64) -> Result<i64, String> {
+    if tk.ttype == TokenType::MULOP {
+        match &tk.txt {
+            Some(operator) => match operator.as_str() {
+                "*" => Ok(lop * rop),
+                "/" => Ok(lop / rop),
+                _ => Err(format!("Wrong operator text (should not happen).")),
+            },
+            None => Err(format!("No operator text (should not happen).")),
+        }
+    } else {
+        Err(format!("Got wrong token type, MULOP expected"))
     }
 }
 
