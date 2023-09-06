@@ -69,9 +69,21 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
         Self { source }
     }
 
+    /// Weird?
+    pub fn from_str(source: &str) -> ExpParser<std::vec::IntoIter<ExpToken>> {
+        let tokens = tokenize(source);
+        let it = tokens.into_iter().peekable();
+        ExpParser { source: it }
+    }
+
     /// Performs the parse. Currently this only checks whether the content is an expression or not.
     pub fn parse(&mut self) -> bool {
         self.start().is_some()
+    }
+
+    /// Performs the parse and builds the tree.
+    pub fn parse_tree(&mut self) -> Option<Tree> {
+        self.start()
     }
 
     /// Parses the grammar's 'start' symbol and builds a corresponding syntax tree.
@@ -167,7 +179,7 @@ impl<T: Iterator<Item = ExpToken>> ExpParser<T> {
                 },
                 None => None,
             },
-            None => Some(Tree::Node(Node::new(NodeType::Expp))), // Epsilon
+            None => Some(Tree::Node(Node::new(NodeType::Termp))), // Epsilon
         }
     }
 
@@ -243,7 +255,13 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
             }
             NodeType::Exp => {
                 if node.children.len() == 2 {
-                    eval(&node.children[0]).and_then(|val| eval_expp(&node.children[1], val))
+                    eval(&node.children[0]).and_then(|val| {
+                        if node.children[1].is_epsilon() {
+                            Ok(val)
+                        } else {
+                            eval_expp(&node.children[1], val)
+                        }
+                    })
                 } else {
                     Err(format!(
                         "Expected 2 children of exp, found {}.",
@@ -253,7 +271,13 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
             }
             NodeType::Term => {
                 if node.children.len() == 2 {
-                    eval(&node.children[0]).and_then(|val| eval_termp(&node.children[1], val))
+                    eval(&node.children[0]).and_then(|val| {
+                        if node.children[1].is_epsilon() {
+                            Ok(val)
+                        } else {
+                            eval_termp(&node.children[1], val)
+                        }
+                    })
                 } else {
                     Err(format!(
                         "Expected 2 children of term, found {}.",
@@ -315,7 +339,7 @@ fn eval_termp(exp: &Tree, lop: i64) -> Result<i64, String> {
                 ))
             }
         } else {
-            Err(format!("Node type termp expected."))
+            Err(format!("Node type termp expected. Got {:?}.", node.kind))
         }
     })
 }
@@ -352,7 +376,7 @@ fn eval_mulop(tk: &ExpToken, lop: i64, rop: i64) -> Result<i64, String> {
 
 #[cfg(test)]
 mod tests {
-    use crate::expressions::parser::parse;
+    use crate::expressions::parser::{eval, parse, ExpParser, ExpToken};
 
     #[test]
     fn test_parse_ok() {
@@ -416,4 +440,35 @@ mod tests {
         let result = parse(text);
         assert_eq!(result, true);
     }
+    /// test eval
+    #[test]
+    fn test_eval_single_value_ok() {
+        let text = "1";
+        let mut parser = ExpParser::<std::vec::IntoIter<ExpToken>>::from_str(text);
+        let tree = parser.parse_tree();
+        assert!(tree.is_some());
+        let value = eval(&tree.unwrap());
+        assert_eq!(Ok(1), value)
+    }
+
+    #[test]
+    fn test_eval_binary_addop_value_ok() {
+        let text = "41 - 51";
+        let mut parser = ExpParser::<std::vec::IntoIter<ExpToken>>::from_str(text);
+        let tree = parser.parse_tree();
+        assert!(tree.is_some());
+        let value = eval(&tree.unwrap());
+        assert_eq!(Ok(-10), value)
+    }
+    
+    #[test]
+    fn test_eval_terary_mix_value_ok() {
+        let text = "4 / 2 + 40";
+        let mut parser = ExpParser::<std::vec::IntoIter<ExpToken>>::from_str(text);
+        let tree = parser.parse_tree();
+        assert!(tree.is_some());
+        let value = eval(&tree.unwrap());
+        assert_eq!(Ok(42), value)
+    }
+
 }
