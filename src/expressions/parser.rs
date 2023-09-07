@@ -2,12 +2,14 @@ use crate::expressions::lexer::tokenize;
 use crate::expressions::lexer::ExpToken;
 use crate::expressions::lexer::TokenType;
 use std::iter::Peekable;
+use serde::Serialize;
 
 /// A parser of simple arithmetic expressions using an [Iterator] source.
 pub struct ExpParser<T: Iterator<Item = ExpToken>> {
     source: Peekable<T>,
 }
 
+#[derive(Serialize)]
 #[readonly::make]
 pub struct Node {
     children: Vec<Tree>,
@@ -37,6 +39,7 @@ impl Node {
     }
 }
 
+#[derive(Serialize)]
 pub enum Tree {
     Node(Node),
     Leaf(ExpToken),
@@ -63,8 +66,12 @@ impl Tree {
             _ => false,
         }
     }
-}
 
+    pub fn to_json(&self) -> Result<String, serde_json::Error>{
+        serde_json::to_string(self)
+    }
+}
+#[derive(Serialize)]
 #[derive(Debug, PartialEq, Eq)]
 pub enum NodeType {
     Start,
@@ -241,6 +248,8 @@ pub fn parse(text: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use crate::expressions::parser::parse;
+    use crate::expressions::parser::ExpParser;
+    use crate::expressions::lexer::ExpToken;
 
     #[test]
     fn test_parse_ok() {
@@ -303,6 +312,18 @@ mod tests {
         let text = "4 -4 ";
         let result = parse(text);
         assert_eq!(result, true);
+    }
+
+    #[test]
+    fn test_serialize_mix_value_ok() {
+        let text = "0 + 8 / 15";
+        let mut parser = ExpParser::<std::vec::IntoIter<ExpToken>>::from_str(text);
+        let tree = parser.parse_tree();
+        assert!(tree.is_some());
+        let json = tree.unwrap().to_json();
+        assert!(json.is_ok());
+        let json_txt = json.unwrap();
+        assert_eq!(("{\"Node\":{\"children\":[{\"Node\":{\"children\":[{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"0\",\"pos\":0}},{\"Node\":{\"children\":[],\"kind\":\"Termp\"}}],\"kind\":\"Term\"}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"ADDOP\",\"txt\":\"+\",\"pos\":2}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"8\",\"pos\":4}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"MULOP\",\"txt\":\"/\",\"pos\":6}},{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"15\",\"pos\":8}},{\"Node\":{\"children\":[],\"kind\":\"Termp\"}}],\"kind\":\"Termp\"}}],\"kind\":\"Term\"}},{\"Node\":{\"children\":[],\"kind\":\"Expp\"}}],\"kind\":\"Expp\"}}],\"kind\":\"Exp\"}}],\"kind\":\"Start\"}}"), json_txt);
     }
 
 }

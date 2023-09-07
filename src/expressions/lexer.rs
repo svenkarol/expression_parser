@@ -1,6 +1,8 @@
 use std::io::{BufReader, Read, Result};
 use utf8_chars::BufReadCharsExt;
+use serde::Serialize;
 
+#[derive(Serialize)]
 #[derive(Debug)]
 #[derive(PartialEq)]
 /// Represents tokens recognized by a lexical analyser. Used by the [Lexer] trait.
@@ -12,6 +14,7 @@ pub struct Token<T> {
 
 #[derive(Debug)]
 #[derive(PartialEq)]
+#[derive(Serialize)]
 /// Kind of tokens that are recognized by an [ExpLexer].
 pub enum TokenType { WS, NUM, ADDOP, MULOP, INIT, UNKNOWN, END}
 
