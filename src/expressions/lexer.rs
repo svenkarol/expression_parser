@@ -254,8 +254,8 @@ fn state_to_token(state: &State, val: String, pos: i32) -> Token<TokenType> {
 #[cfg(test)]
 mod tests {
     use super::{Token, TokenType, ExpLexer, Lexer};
-    use std::{io::{BufReader}};
-    use pretty_assertions::{assert_eq};
+    use std::io::BufReader;
+    use pretty_assertions::assert_eq;
 
     #[test]
     fn test_explexer_match_empty_string() {
