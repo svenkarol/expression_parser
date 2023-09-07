@@ -2,7 +2,6 @@ use crate::expressions::parser::Tree;
 use crate::expressions::parser::NodeType;
 use crate::expressions::lexer::ExpToken;
 use crate::expressions::lexer::TokenType;
-use std::iter::Peekable;
 
 
 /// Evaluates a given expression tree by computing the expression's value.
@@ -22,44 +21,44 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
         },
         Tree::Node(node) => match &node.kind {
             NodeType::Start => {
-                if node.children.len() == 1 {
-                    eval(&node.children[0])
+                if node.child_count() == 1 {
+                    eval(&node.get_child(0))
                 } else {
                     Err(format!(
                         "Expected 1 child of start, found {}.",
-                        node.children.len()
+                        node.child_count()
                     ))
                 }
             }
             NodeType::Exp => {
-                if node.children.len() == 2 {
-                    eval(&node.children[0]).and_then(|val| {
-                        if node.children[1].is_epsilon() {
+                if node.child_count() == 2 {
+                    eval(&node.get_child(0)).and_then(|val| {
+                        if node.get_child(1).is_epsilon() {
                             Ok(val)
                         } else {
-                            eval_expp(&node.children[1], val)
+                            eval_expp(&node.get_child(1), val)
                         }
                     })
                 } else {
                     Err(format!(
                         "Expected 2 children of exp, found {}.",
-                        node.children.len()
+                        node.child_count()
                     ))
                 }
             }
             NodeType::Term => {
-                if node.children.len() == 2 {
-                    eval(&node.children[0]).and_then(|val| {
-                        if node.children[1].is_epsilon() {
+                if node.child_count() == 2 {
+                    eval(&node.get_child(0)).and_then(|val| {
+                        if node.get_child(1).is_epsilon() {
                             Ok(val)
                         } else {
-                            eval_termp(&node.children[1], val)
+                            eval_termp(&node.get_child(1), val)
                         }
                     })
                 } else {
                     Err(format!(
                         "Expected 2 children of term, found {}.",
-                        node.children.len()
+                        node.child_count()
                     ))
                 }
             }
@@ -71,14 +70,14 @@ pub fn eval(exp: &Tree) -> Result<i64, String> {
 fn eval_expp(exp: &Tree, lop: i64) -> Result<i64, String> {
     exp.as_node().and_then(|node| {
         if node.kind == NodeType::Expp {
-            if node.children.len() == 3 {
-                eval(&node.children[1]).and_then(|rop| {
-                    node.children[0].as_leaf().and_then(|tk| {
+            if node.child_count() == 3 {
+                eval(&node.get_child(1)).and_then(|rop| {
+                    node.get_child(0).as_leaf().and_then(|tk| {
                         eval_addop(tk, lop, rop).and_then(|lop| {
-                            if node.children[2].is_epsilon() {
+                            if node.get_child(2).is_epsilon() {
                                 Ok(lop)
                             } else {
-                                eval_expp(&node.children[2], lop)
+                                eval_expp(&node.get_child(2), lop)
                             }
                         })
                     })
@@ -86,26 +85,26 @@ fn eval_expp(exp: &Tree, lop: i64) -> Result<i64, String> {
             } else {
                 Err(format!(
                     "Expected 3 children of expp, found {}.",
-                    node.children.len()
+                    node.child_count()
                 ))
             }
         } else {
             Err(format!("Node type expp expected."))
         }
     })
-}
+} 
 
 fn eval_termp(exp: &Tree, lop: i64) -> Result<i64, String> {
     exp.as_node().and_then(|node| {
         if node.kind == NodeType::Termp {
-            if node.children.len() == 3 {
-                eval(&node.children[1]).and_then(|rop| {
-                    node.children[0].as_leaf().and_then(|tk| {
+            if node.child_count() == 3 {
+                eval(&node.get_child(1)).and_then(|rop| {
+                    node.get_child(0).as_leaf().and_then(|tk| {
                         eval_mulop(tk, lop, rop).and_then(|lop| {
-                            if node.children[2].is_epsilon() {
+                            if node.get_child(2).is_epsilon() {
                                 Ok(lop)
                             } else {
-                                eval_termp(&node.children[2], lop)
+                                eval_termp(&node.get_child(2), lop)
                             }
                         })
                     })
@@ -113,7 +112,7 @@ fn eval_termp(exp: &Tree, lop: i64) -> Result<i64, String> {
             } else {
                 Err(format!(
                     "Expected 3 children of termp, found {}.",
-                    node.children.len()
+                    node.child_count()
                 ))
             }
         } else {

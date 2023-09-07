@@ -8,9 +8,12 @@ pub struct ExpParser<T: Iterator<Item = ExpToken>> {
     source: Peekable<T>,
 }
 
+#[readonly::make]
 pub struct Node {
     children: Vec<Tree>,
-    kind: NodeType,
+
+    #[readonly]
+    pub kind: NodeType,
 }
 
 impl Node {
@@ -25,8 +28,12 @@ impl Node {
         self.children.push(new_child);
     }
 
-    pub fn child_count(&mut self) -> usize {
+    pub fn child_count(&self) -> usize {
         self.children.len()
+    }
+
+    pub fn get_child(&self, index: usize) -> &Tree {
+        &self.children[index]
     }
 }
 
@@ -233,7 +240,7 @@ pub fn parse(text: &str) -> bool {
 
 #[cfg(test)]
 mod tests {
-    use crate::expressions::parser::{parse, ExpParser, ExpToken};
+    use crate::expressions::parser::parse;
 
     #[test]
     fn test_parse_ok() {
