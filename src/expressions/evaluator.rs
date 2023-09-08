@@ -179,7 +179,7 @@ mod tests {
    }
    
    #[test]
-   fn test_eval_terary_mix_value_ok() {
+   fn test_eval_ternary_mix_value_ok() {
        let text = "4 / 2 + 40";
        let mut parser = ExpParser::<std::vec::IntoIter<ExpToken>>::from_str(text);
        let tree = parser.parse_tree();
