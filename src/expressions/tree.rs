@@ -39,3 +39,13 @@ enum AExp {
     Number(Number)
 }
 
+impl BinExp {
+    pub fn new(op: BinAOp, left: AExp, right: AExp, parent: Option<Box<BinExp>>) -> Self {
+        BinExp {
+            op: op,
+            parent: parent,
+            left: Box::new(left),
+            right: Box::new(right)
+        }
+    }
+}
