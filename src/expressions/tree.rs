@@ -1,7 +1,6 @@
 use serde::Serialize;
-use std::borrow::BorrowMut;
 use std::cell::RefCell;
-use std::rc::{Rc, Weak};
+use std::rc::Rc;
 
 /// https://doc.rust-lang.org/book/ch15-06-reference-cycles.html
 
@@ -58,7 +57,7 @@ pub enum BinAOp {
 #[derive(Serialize)]
 pub struct BinExp {
     #[serde(skip_serializing)]
-    parent: ParentRel<BinExp>,
+    _parent: ParentRel<BinExp>,
     op: BinAOp,
     left: ChildRel<AExp>,
     right: ChildRel<AExp>,
@@ -104,10 +103,10 @@ impl<T> RelHelper<T> for ParentRel<T> {
 }
 
 impl BinExp {
-    pub fn new(op: BinAOp, left: AExp, right: AExp, self_parent: Option<&Rc<BinExp>>) -> Self {
+    pub fn new(op: BinAOp, left: AExp, right: AExp, _self_parent: Option<&Rc<BinExp>>) -> Self {
         let exp = BinExp {
             op: op,
-            parent: None, // how to set this? See above and below ...
+            _parent: None, // how to set this? See above and below ...
             left: ChildRel::from_value(left),
             right: ChildRel::from_value(right),
         };
@@ -168,6 +167,6 @@ mod tests {
         let json = serde_json::to_string(&add_tree);
         assert!(json.is_ok());
         let json_txt = json.unwrap();
-        assert_eq!(("{\"Node\":{\"children\":[{\"Node\":{\"children\":[{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"0\",\"pos\":0}},{\"Node\":{\"children\":[],\"kind\":\"Termp\"}}],\"kind\":\"Term\"}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"ADDOP\",\"txt\":\"+\",\"pos\":2}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"8\",\"pos\":4}},{\"Node\":{\"children\":[{\"Leaf\":{\"ttype\":\"MULOP\",\"txt\":\"/\",\"pos\":6}},{\"Leaf\":{\"ttype\":\"NUM\",\"txt\":\"15\",\"pos\":8}},{\"Node\":{\"children\":[],\"kind\":\"Termp\"}}],\"kind\":\"Termp\"}}],\"kind\":\"Term\"}},{\"Node\":{\"children\":[],\"kind\":\"Expp\"}}],\"kind\":\"Expp\"}}],\"kind\":\"Exp\"}}],\"kind\":\"Start\"}}"), json_txt);
+        assert_eq!(("{\"op\":{\"Plus\":{\"parent\":null}},\"left\":{\"Number\":{\"parent\":null,\"value\":0}},\"right\":{\"BinExp\":{\"op\":{\"Mult\":{\"parent\":null}},\"left\":{\"Number\":{\"parent\":null,\"value\":8}},\"right\":{\"Number\":{\"parent\":null,\"value\":15}}}}}"), json_txt);
     }
 }
