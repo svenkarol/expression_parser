@@ -35,17 +35,17 @@ mod combinators {
     pub fn alt<P1, P2, R1, R2, R3>(
         first: P1,
         second: P2,
-    ) -> impl Fn(ParseInput) -> ParseResult<(R1, (Option<R2>, Option<R3>))>
+    ) -> impl Fn(ParseInput) -> ParseResult<(Option<R2>, Option<R3>)>
     where
         P1: Fn(ParseInput) -> ParseResult<(R1, Option<R2>)>,
-        P2: Fn(ParseInput) -> ParseResult<R3>,
+        P2: Fn(R1, ParseInput) -> ParseResult<R3>,
     {
         move |input| {
             first(input).and_then(|(next_input, (resval1, resval2))| match resval2 {
-                Some(_) => Ok((next_input, (resval1, (resval2, None)))),
-                None => match second(next_input) {
+                Some(_) => Ok((next_input, (resval2, None))),
+                None => match second(resval1, next_input) {
                     Ok((next_input2, resval3)) => {
-                        Ok((next_input2, (resval1, (resval2, Some(resval3)))))
+                        Ok((next_input2, (None, Some(resval3))))
                     }
                     Err(err) => Err(err),
                 },
@@ -85,13 +85,13 @@ mod combinators {
         }
     }
 
-    pub  fn map<P, F, R, Q>(parser: P, map_fn: F) -> impl Fn(ParseInput) -> ParseResult<Q>
+    pub fn map<P, F, R, Q>(parser: P, mapper: F) -> impl Fn(ParseInput) -> ParseResult<Q>
     where
         P: Fn(ParseInput) -> ParseResult<R>,
         F: Fn(R) -> Q,
     {
         move |input| {
-            parser(input).map(|(next_input, parse_result)| (next_input, map_fn(parse_result)))
+            parser(input).map(|(next_input, parse_result)| (next_input, mapper(parse_result)))
         }
     }
 
@@ -159,14 +159,10 @@ mod combinators {
 mod astparser {
     extern crate proc_macro;
     use peekmore::PeekMore;
-    use peekmore::PeekMoreIterator;
-    use proc_macro2::token_stream::IntoIter;
     use proc_macro2::Ident;
-    use proc_macro2::Punct;
     use proc_macro2::Spacing;
     use proc_macro2::TokenStream;
     use proc_macro2::TokenTree;
-    use std::iter::Peekable;
     use super::combinators::{alt, as_pair, as_pair_opt, map, one_or_more, ParseInput, ParseResult};
 
     pub struct Grammar {
@@ -209,8 +205,6 @@ mod astparser {
         ('-', FollowedBy::Spacing(proc_macro2::Spacing::Joint)),
         ('>', FollowedBy::Spacing(proc_macro2::Spacing::Alone)),
     ];
-
-
 
     pub trait ParseInputHelpers {
         fn from_tkstream(stream: TokenStream) -> ParseInput;
@@ -258,43 +252,62 @@ mod astparser {
 
     pub fn try_nonterminal_child(
         mut input: ParseInput,
-    ) -> ParseResult<((Ident, Vec<TokenTree /*COLON*/>), Option<Ident>)> {
-        as_pair_opt(as_pair(ident, match_punct(LT)), ident)(input)
+    ) -> ParseResult<((Ident, Vec<TokenTree /*COLON*/>), Option<NonTerminal>)> {
+        map(
+            as_pair_opt(as_pair(ident, match_punct(COLON)), ident),
+            |((ident1, colon), ident2)| 
+            match ident2 {
+                Some(ident2) => ((ident1.clone(), colon), Some(
+                    NonTerminal { 
+                        name: ident2, 
+                        member: ident1 }
+                )),
+                None => ((ident1, colon), None),
+            },
+        )(input)           
     }
 
     pub fn terminal_child(
-        mut input: ParseInput,
-    ) -> ParseResult<(
-        Ident,
-        (Vec<TokenTree /*LT*/>, (Ident, Vec<TokenTree /*GT*/>)),
-    )> {
-        as_pair(
-            ident,
-            as_pair(match_punct(LT), as_pair(ident, match_punct(GT))),
-        )(input)
+        prefix: (Ident, Vec<TokenTree /*COLON*/>),
+        input: ParseInput,
+    ) -> ParseResult<Terminal> {
+       match as_pair(match_punct(LT), as_pair(ident, match_punct(GT)))(input) {
+              Ok((next_input, (_, (ident2, _)))) => {
+                    Ok((next_input, Terminal {
+                        name: ident2,
+                        member: prefix.0,
+                    }))
+              },
+              Err(next_input) => Err(next_input)
+       }
+       
+       /*map(
+         as_pair(match_punct(LT), as_pair(ident, match_punct(GT))),
+         |(_,(ident2, _))| {
+            Terminal {
+                name: ident2,
+                member: prefix.0.clone(),
+            }
+         }
+       )(input)*/
     }
 
-    pub fn rhselement(mut input: ParseInput) -> ParseResult<RhsElement> {
-        return map(
-            alt(try_nonterminal_child, terminal_child),
-            |((member, _), (nt_alt, alt2))| {
-                if let Some(nt_name) = nt_alt {
-                    RhsElement::NonTerminal(NonTerminal {
-                        name: nt_name,
-                        member: member,
-                    })
-                } else {
-                    if let Some((_, (_, (t_name, _)))) = alt2 {
-                        RhsElement::Terminal(Terminal {
-                            name: t_name,
-                            member: member,
-                        })
-                    } else {
-                        panic!("This point should never be reached!");
-                    }
+   pub fn rhselement(mut input: ParseInput) -> ParseResult<RhsElement> {
+        match alt(try_nonterminal_child, terminal_child)(input) {
+            Ok((next_input, (alt1, alt2))) => {
+                if let Some(nt) = alt1 {
+                    return Ok((next_input, RhsElement::NonTerminal(nt)));
+                }
+                else if let Some(tm) = alt2 {
+                    return Ok((next_input, RhsElement::Terminal(tm)));
+                }
+                else {
+                    return Err(next_input);
                 }
             },
-        )(input);
+            Err(next_input) => return Err(next_input)
+
+        }
     }
 
     pub fn ident(mut input: ParseInput) -> ParseResult<Ident> {
@@ -341,7 +354,83 @@ mod astparser {
     
 
     mod tests {
-        use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct, nonterminal, terminal};
+        use proc_macro2::{Ident, TokenTree, Span};
+
+        use crate::astparser::{try_nonterminal_child, COLON, RhsElement, NonTerminal};
+
+        use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct, nonterminal, terminal, rhselement, terminal_child};
+
+        #[test]
+        fn test_rhs_element_nonterminal() {
+            let str_input = "foo:BarFoo";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let rhs_element = rhselement(ParseInput::from_tkstream(stream));
+            assert!(rhs_element.is_ok());
+            let (_, rhs_value) = rhs_element.unwrap();
+            match rhs_value {
+                RhsElement::Terminal(_) => assert!(false),
+                RhsElement::NonTerminal(nonterminal) => {
+                    assert_eq!(nonterminal.name.to_string().as_str(), "BarFoo");
+                    assert_eq!(nonterminal.member.to_string().as_str(), "foo");
+                }        
+            }        
+        }
+
+        #[test]
+        fn test_rhs_element_terminal() {
+            let str_input = "bar:<string>";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let rhs_element = rhselement(ParseInput::from_tkstream(stream));
+            assert!(rhs_element.is_ok());
+            let (_, rhs_value) = rhs_element.unwrap();
+            match rhs_value {
+                RhsElement::Terminal(terminal) => {
+                    assert_eq!(terminal.name.to_string().as_str(), "string");
+                    assert_eq!(terminal.member.to_string().as_str(), "bar");
+                },
+                RhsElement::NonTerminal(_) => assert!(false)        
+            }        
+        }
+
+        #[test]
+        fn test_terminal_child() {
+            let str_input = "<string>";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let prefix = (Ident::new("foo", Span::call_site()), Vec::new());
+            let terminal = terminal_child(prefix, ParseInput::from_tkstream(stream));
+            assert!(terminal.is_ok());
+            let (_, terminal_value) = terminal.unwrap();
+            assert_eq!(terminal_value.name.to_string().as_str(), "string");
+            assert_eq!(terminal_value.member.to_string().as_str(), "foo");
+        }
+
+        #[test]
+        fn test_try_nonterminal_child_terminal() {
+            let str_input = "bar:<string>";
+            let member_expected = "bar";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let rhs_element = try_nonterminal_child(ParseInput::from_tkstream(stream));
+            assert!(rhs_element.is_ok());
+            let rhs_value = rhs_element.unwrap();
+            let (member,_) = rhs_value.1.0;
+            assert_eq!(member.to_string().as_str(), member_expected);
+            assert!(rhs_value.1.1.is_none());
+        }
+
+        #[test]
+        fn test_try_nonterminal_child_nonterminal() {
+            let str_input = "bar:Foobar";
+            let member_expected = "bar";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let rhs_element = try_nonterminal_child(ParseInput::from_tkstream(stream));
+            assert!(rhs_element.is_ok());
+            let rhs_value = rhs_element.unwrap();
+            let (member,_) = rhs_value.1.0;
+            assert_eq!(member.to_string().as_str(), member_expected);
+            assert!(rhs_value.1.1.is_some());
+            let nt_value = rhs_value.1.1.unwrap();
+            assert_eq!(nt_value.name.to_string().as_str(), "Foobar");
+        }
 
         #[test]
         fn test_terminal_spacing_ok() {
@@ -351,9 +440,9 @@ mod astparser {
             let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
             let terminal = terminal(ParseInput::from_tkstream(stream));
             assert!(terminal.is_ok());
-            let (_, nt_value) = terminal.unwrap();
-            assert_eq!(nt_value.name.to_string().as_str(), name_expected);
-            assert_eq!(nt_value.member.to_string().as_str(), member_expected);
+            let (_, terminal_value) = terminal.unwrap();
+            assert_eq!(terminal_value.name.to_string().as_str(), name_expected);
+            assert_eq!(terminal_value.member.to_string().as_str(), member_expected);
         }
 
         #[test]
