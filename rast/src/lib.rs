@@ -7,7 +7,7 @@ use proc_macro::TokenStream;
 pub fn rast_ast(item: TokenStream) -> TokenStream {
     let mut i = 0;
     //let mut it = item.into_iter().collect::<Vec<TokenTree>>();
-    let mut it: astparser::ParseInput = proc_macro2::TokenStream::from(item).into_iter().peekmore();
+    let mut it: combinators::ParseInput = proc_macro2::TokenStream::from(item).into_iter().peekmore();
 
     for tk in it {
         println!(
@@ -23,6 +23,139 @@ pub fn rast_ast(item: TokenStream) -> TokenStream {
     "pub struct BinExp;".parse().unwrap()
 }
 
+mod combinators {
+    
+    use peekmore::PeekMoreIterator;
+    use proc_macro2::token_stream::IntoIter;
+
+    // https://bodil.lol/parser-combinators/
+    pub type ParseInput = PeekMoreIterator<IntoIter>;
+    pub type ParseResult<R> = Result<(ParseInput, R), ParseInput>;
+
+    pub fn alt<P1, P2, R1, R2, R3>(
+        first: P1,
+        second: P2,
+    ) -> impl Fn(ParseInput) -> ParseResult<(R1, (Option<R2>, Option<R3>))>
+    where
+        P1: Fn(ParseInput) -> ParseResult<(R1, Option<R2>)>,
+        P2: Fn(ParseInput) -> ParseResult<R3>,
+    {
+        move |input| {
+            first(input).and_then(|(next_input, (resval1, resval2))| match resval2 {
+                Some(_) => Ok((next_input, (resval1, (resval2, None)))),
+                None => match second(next_input) {
+                    Ok((next_input2, resval3)) => {
+                        Ok((next_input2, (resval1, (resval2, Some(resval3)))))
+                    }
+                    Err(err) => Err(err),
+                },
+            })
+        }
+    }
+
+    pub fn as_pair<P1, P2, R1, R2>(
+        first: P1,
+        second: P2,
+    ) -> impl Fn(ParseInput) -> ParseResult<(R1, R2)>
+    where
+        P1: Fn(ParseInput) -> ParseResult<R1>,
+        P2: Fn(ParseInput) -> ParseResult<R2>,
+    {
+        move |input| {
+            first(input).and_then(|(next_input, resval1)| match second(next_input) {
+                Ok((next_input2, resval2)) => Ok((next_input2, (resval1, resval2))),
+                Err(err) => Err(err),
+            })
+        }
+    }
+
+    pub fn as_pair_opt<P1, P2, R1, R2>(
+        first: P1,
+        second: P2,
+    ) -> impl Fn(ParseInput) -> ParseResult<(R1, Option<R2>)>
+    where
+        P1: Fn(ParseInput) -> ParseResult<R1>,
+        P2: Fn(ParseInput) -> ParseResult<R2>,
+    {
+        move |input| {
+            first(input).and_then(|(next_input, resval1)| match second(next_input) {
+                Ok((next_input2, resval2)) => Ok((next_input2, (resval1, Some(resval2)))),
+                Err(next_input2) => Ok((next_input2, (resval1, None))),
+            })
+        }
+    }
+
+    pub  fn map<P, F, R, Q>(parser: P, map_fn: F) -> impl Fn(ParseInput) -> ParseResult<Q>
+    where
+        P: Fn(ParseInput) -> ParseResult<R>,
+        F: Fn(R) -> Q,
+    {
+        move |input| {
+            parser(input).map(|(next_input, parse_result)| (next_input, map_fn(parse_result)))
+        }
+    }
+
+    pub fn as_left<P1, P2, R1, R2>(first: P1, second: P2) -> impl Fn(ParseInput) -> ParseResult<R1>
+    where
+        P1: Fn(ParseInput) -> ParseResult<R1>,
+        P2: Fn(ParseInput) -> ParseResult<R2>,
+    {
+        map(as_pair(first, second), |(left, _right)| left)
+    }
+
+    pub fn as_right<P1, P2, R1, R2>(first: P1, second: P2) -> impl Fn(ParseInput) -> ParseResult<R2>
+    where
+        P1: Fn(ParseInput) -> ParseResult<R1>,
+        P2: Fn(ParseInput) -> ParseResult<R2>,
+    {
+        map(as_pair(first, second), |(_left, right)| right)
+    }
+
+    pub fn one_or_more<P, R>(parser: P) -> impl Fn(ParseInput) -> ParseResult<Vec<R>>
+    where
+        P: Fn(ParseInput) -> ParseResult<R>,
+    {
+        move |mut input| {
+            let mut result: Vec<R> = Vec::new();
+            match parser(input) {
+                Ok((next_input, value)) => {
+                    result.push(value);
+                    input = next_input;
+                }
+                Err(next_input) => return Err(next_input),
+            }
+
+            loop {
+                match parser(input) {
+                    Ok((next_input, value)) => {
+                        result.push(value);
+                        input = next_input;
+                    }
+                    Err(next_input) => return Ok((next_input, result)),
+                }
+            }
+        }
+    }
+
+    pub fn zero_or_more<P, R>(parser: P) -> impl Fn(ParseInput) -> ParseResult<Vec<R>>
+    where
+        P: Fn(ParseInput) -> ParseResult<R>,
+    {
+        move |mut input| {
+            let mut result: Vec<R> = Vec::new();
+            loop {
+                match parser(input) {
+                    Ok((next_input, value)) => {
+                        result.push(value);
+                        input = next_input;
+                    }
+                    Err(next_input) => return Ok((next_input, result)),
+                }
+            }
+        }
+    }
+}
+
 mod astparser {
     extern crate proc_macro;
     use peekmore::PeekMore;
@@ -34,6 +167,8 @@ mod astparser {
     use proc_macro2::TokenStream;
     use proc_macro2::TokenTree;
     use std::iter::Peekable;
+    use super::combinators::{alt, as_pair, as_pair_opt, map, one_or_more, ParseInput, ParseResult};
+
     pub struct Grammar {
         rules: Vec<Rule>,
     }
@@ -58,17 +193,24 @@ mod astparser {
         Terminal(Terminal),
     }
 
-    const COLON: &[(char, Spacing)] = &[(':', proc_macro2::Spacing::Alone)];
-    const GT: &[(char, Spacing)] = &[('>', proc_macro2::Spacing::Alone)];
-    const LT: &[(char, Spacing)] = &[('<', proc_macro2::Spacing::Alone)];
-    const ARROW: &[(char, Spacing)] = &[
-        ('-', proc_macro2::Spacing::Joint),
-        ('>', proc_macro2::Spacing::Alone),
+    pub enum FollowedBy {
+        Spacing(Spacing),
+        AnyToken
+    }
+
+    const COLON: &[(char, FollowedBy)] = &[(':', FollowedBy::AnyToken)];
+    const COLON_LT: &[(char, FollowedBy)] = &[
+        (':', FollowedBy::Spacing(proc_macro2::Spacing::Joint)), 
+        ('<', FollowedBy::Spacing(proc_macro2::Spacing::Alone))
+    ];
+    const GT: &[(char, FollowedBy)] = &[('>', FollowedBy::Spacing(proc_macro2::Spacing::Alone))];
+    const LT: &[(char, FollowedBy)] = &[('<', FollowedBy::Spacing(proc_macro2::Spacing::Alone))];
+    const ARROW: &[(char, FollowedBy)] = &[
+        ('-', FollowedBy::Spacing(proc_macro2::Spacing::Joint)),
+        ('>', FollowedBy::Spacing(proc_macro2::Spacing::Alone)),
     ];
 
-    // https://bodil.lol/parser-combinators/
-    pub type ParseInput = PeekMoreIterator<IntoIter>;
-    pub type ParseResult<R> = Result<(ParseInput, R), ParseInput>;
+
 
     pub trait ParseInputHelpers {
         fn from_tkstream(stream: TokenStream) -> ParseInput;
@@ -105,9 +247,9 @@ mod astparser {
         map(
             as_pair(
                 ident,
-                as_pair(match_punct(LT), as_pair(ident, match_punct(GT))),
+                as_pair(as_pair(as_pair(match_punct(COLON), match_punct(LT)), ident), match_punct(GT)),
             ),
-            |(ident1, (_, (ident2, _)))| Terminal {
+            |(ident1, ((_, ident2),_))| Terminal {
                 name: ident2,
                 member: ident1,
             },
@@ -117,7 +259,7 @@ mod astparser {
     pub fn try_nonterminal_child(
         mut input: ParseInput,
     ) -> ParseResult<((Ident, Vec<TokenTree /*COLON*/>), Option<Ident>)> {
-        as_pair_opt(as_pair(ident, match_punct(COLON)), ident)(input)
+        as_pair_opt(as_pair(ident, match_punct(LT)), ident)(input)
     }
 
     pub fn terminal_child(
@@ -135,7 +277,7 @@ mod astparser {
     pub fn rhselement(mut input: ParseInput) -> ParseResult<RhsElement> {
         return map(
             alt(try_nonterminal_child, terminal_child),
-            |((member, _), nt_alt, alt2)| {
+            |((member, _), (nt_alt, alt2))| {
                 if let Some(nt_name) = nt_alt {
                     RhsElement::NonTerminal(NonTerminal {
                         name: nt_name,
@@ -167,7 +309,7 @@ mod astparser {
     }
 
     pub fn match_punct(
-        to_match: &'static [(char, Spacing)],
+        to_match: &'static [(char, FollowedBy)],
     ) -> impl Fn(ParseInput) -> ParseResult<Vec<TokenTree>> {
         move |mut input| {
             let range = input.peek_range(0, to_match.len());
@@ -179,8 +321,13 @@ mod astparser {
                 if is_value.as_char() != expected.0 {
                     return Err(input);
                 }
-                if is_value.spacing() != expected.1 {
-                    return Err(input);
+                match expected.1 {
+                    FollowedBy::Spacing(spacing) => {
+                        if is_value.spacing() != spacing {
+                            return Err(input);
+                        }
+                    }
+                    FollowedBy::AnyToken => {}      
                 }
             }
             let mut result: Vec<TokenTree> = Vec::new();
@@ -191,131 +338,62 @@ mod astparser {
         }
     }
 
-    fn alt<P1, P2, R1, R2, R3>(
-        first: P1,
-        second: P2,
-    ) -> impl Fn(ParseInput) -> ParseResult<(R1, Option<R2>, Option<R3>)>
-    where
-        P1: Fn(ParseInput) -> ParseResult<(R1, Option<R2>)>,
-        P2: Fn(ParseInput) -> ParseResult<R3>,
-    {
-        move |input| {
-            first(input).and_then(|(next_input, (resval1, resval2))| match resval2 {
-                Some(_) => Ok((next_input, (resval1, resval2, None))),
-                None => match second(next_input) {
-                    Ok((next_input2, resval3)) => {
-                        Ok((next_input2, (resval1, resval2, Some(resval3))))
-                    }
-                    Err(err) => Err(err),
-                },
-            })
-        }
-    }
-
-    fn as_pair<P1, P2, R1, R2>(
-        first: P1,
-        second: P2,
-    ) -> impl Fn(ParseInput) -> ParseResult<(R1, R2)>
-    where
-        P1: Fn(ParseInput) -> ParseResult<R1>,
-        P2: Fn(ParseInput) -> ParseResult<R2>,
-    {
-        move |input| {
-            first(input).and_then(|(next_input, resval1)| match second(next_input) {
-                Ok((next_input2, resval2)) => Ok((next_input2, (resval1, resval2))),
-                Err(err) => Err(err),
-            })
-        }
-    }
-
-    fn as_pair_opt<P1, P2, R1, R2>(
-        first: P1,
-        second: P2,
-    ) -> impl Fn(ParseInput) -> ParseResult<(R1, Option<R2>)>
-    where
-        P1: Fn(ParseInput) -> ParseResult<R1>,
-        P2: Fn(ParseInput) -> ParseResult<R2>,
-    {
-        move |input| {
-            first(input).and_then(|(next_input, resval1)| match second(next_input) {
-                Ok((next_input2, resval2)) => Ok((next_input2, (resval1, Some(resval2)))),
-                Err(next_input2) => Ok((next_input2, (resval1, None))),
-            })
-        }
-    }
-
-    fn map<P, F, R, Q>(parser: P, map_fn: F) -> impl Fn(ParseInput) -> ParseResult<Q>
-    where
-        P: Fn(ParseInput) -> ParseResult<R>,
-        F: Fn(R) -> Q,
-    {
-        move |input| {
-            parser(input).map(|(next_input, parse_result)| (next_input, map_fn(parse_result)))
-        }
-    }
-
-    fn as_left<P1, P2, R1, R2>(first: P1, second: P2) -> impl Fn(ParseInput) -> ParseResult<R1>
-    where
-        P1: Fn(ParseInput) -> ParseResult<R1>,
-        P2: Fn(ParseInput) -> ParseResult<R2>,
-    {
-        map(as_pair(first, second), |(left, _right)| left)
-    }
-
-    fn as_right<P1, P2, R1, R2>(first: P1, second: P2) -> impl Fn(ParseInput) -> ParseResult<R2>
-    where
-        P1: Fn(ParseInput) -> ParseResult<R1>,
-        P2: Fn(ParseInput) -> ParseResult<R2>,
-    {
-        map(as_pair(first, second), |(_left, right)| right)
-    }
-
-    fn one_or_more<P, R>(parser: P) -> impl Fn(ParseInput) -> ParseResult<Vec<R>>
-    where
-        P: Fn(ParseInput) -> ParseResult<R>,
-    {
-        move |mut input| {
-            let mut result: Vec<R> = Vec::new();
-            match parser(input) {
-                Ok((next_input, value)) => {
-                    result.push(value);
-                    input = next_input;
-                }
-                Err(next_input) => return Err(next_input),
-            }
-
-            loop {
-                match parser(input) {
-                    Ok((next_input, value)) => {
-                        result.push(value);
-                        input = next_input;
-                    }
-                    Err(next_input) => return Ok((next_input, result)),
-                }
-            }
-        }
-    }
-
-    fn zero_or_more<P, R>(parser: P) -> impl Fn(ParseInput) -> ParseResult<Vec<R>>
-    where
-        P: Fn(ParseInput) -> ParseResult<R>,
-    {
-        move |mut input| {
-            let mut result: Vec<R> = Vec::new();
-            loop {
-                match parser(input) {
-                    Ok((next_input, value)) => {
-                        result.push(value);
-                        input = next_input;
-                    }
-                    Err(next_input) => return Ok((next_input, result)),
-                }
-            }
-        }
-    }
+    
 
     mod tests {
-        use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct};
+        use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct, nonterminal, terminal};
+
+        #[test]
+        fn test_terminal_spacing_ok() {
+            let str_input = "foo : <string>";
+            let name_expected = "string";
+            let member_expected = "foo";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let terminal = terminal(ParseInput::from_tkstream(stream));
+            assert!(terminal.is_ok());
+            let (_, nt_value) = terminal.unwrap();
+            assert_eq!(nt_value.name.to_string().as_str(), name_expected);
+            assert_eq!(nt_value.member.to_string().as_str(), member_expected);
+        }
+
+        #[test]
+        fn test_terminal_nospacing_ok() {
+            let str_input = "foo:<string>";
+            let name_expected = "string";
+            let member_expected = "foo";
+            let stream: proc_macro2::TokenStream = str_input.parse().unwrap();
+            let terminal = terminal(ParseInput::from_tkstream(stream));
+            assert!(terminal.is_ok());
+            let (_, nt_value) = terminal.unwrap();
+            assert_eq!(nt_value.name.to_string().as_str(), name_expected);
+            assert_eq!(nt_value.member.to_string().as_str(), member_expected);
+        }
+
+        #[test]
+        fn test_nonterminal_ok() {
+            let nt_str_input = "foo:Bar";
+            let name_expected = "Bar";
+            let member_expected = "foo";
+            let stream: proc_macro2::TokenStream = nt_str_input.parse().unwrap();
+            let nonterminal = nonterminal(ParseInput::from_tkstream(stream));
+            assert!(nonterminal.is_ok());
+            let (_, nt_value) = nonterminal.unwrap();
+            assert_eq!(nt_value.name.to_string().as_str(), name_expected);
+            assert_eq!(nt_value.member.to_string().as_str(), member_expected);
+        }
+
+        #[test]
+        fn test_nonterminal_blank_ok() {
+            let nt_str_input = "foo :  Bar";
+            let name_expected = "Bar";
+            let member_expected = "foo";
+            let stream: proc_macro2::TokenStream = nt_str_input.parse().unwrap();
+            let nonterminal = nonterminal(ParseInput::from_tkstream(stream));
+            assert!(nonterminal.is_ok());
+            let (_, nt_value) = nonterminal.unwrap();
+            assert_eq!(nt_value.name.to_string().as_str(), name_expected);
+            assert_eq!(nt_value.member.to_string().as_str(), member_expected);
+        }
 
         #[test]
         fn test_ident_ok() {
