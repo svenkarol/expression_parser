@@ -7,7 +7,8 @@ use proc_macro::TokenStream;
 pub fn rast_ast(item: TokenStream) -> TokenStream {
     let mut i = 0;
     //let mut it = item.into_iter().collect::<Vec<TokenTree>>();
-    let mut it: combinators::ParseInput = proc_macro2::TokenStream::from(item).into_iter().peekmore();
+    let mut it: combinators::ParseInput =
+        proc_macro2::TokenStream::from(item).into_iter().peekmore();
 
     for tk in it {
         println!(
@@ -24,7 +25,7 @@ pub fn rast_ast(item: TokenStream) -> TokenStream {
 }
 
 mod combinators {
-    
+
     use peekmore::PeekMoreIterator;
     use proc_macro2::token_stream::IntoIter;
 
@@ -44,9 +45,7 @@ mod combinators {
             first(input).and_then(|(next_input, (resval1, resval2))| match resval2 {
                 Some(_) => Ok((next_input, (resval2, None))),
                 None => match second(resval1, next_input) {
-                    Ok((next_input2, resval3)) => {
-                        Ok((next_input2, (None, Some(resval3))))
-                    }
+                    Ok((next_input2, resval3)) => Ok((next_input2, (None, Some(resval3)))),
                     Err(err) => Err(err),
                 },
             })
@@ -113,25 +112,31 @@ mod combinators {
 
     pub fn one_or_more<P, R>(parser: P) -> impl Fn(ParseInput) -> ParseResult<Vec<R>>
     where
-        P: Fn(ParseInput) -> ParseResult<R>,
+        P: Fn(ParseInput) -> ParseResult<Option<R>>,
     {
         move |mut input| {
             let mut result: Vec<R> = Vec::new();
             match parser(input) {
-                Ok((next_input, value)) => {
-                    result.push(value);
-                    input = next_input;
-                }
+                Ok((next_input, value)) => match (value) {
+                    Some(value) => {
+                        result.push(value);
+                        input = next_input;
+                    }
+                    None => return Err(next_input),
+                },
                 Err(next_input) => return Err(next_input),
             }
 
             loop {
                 match parser(input) {
-                    Ok((next_input, value)) => {
-                        result.push(value);
-                        input = next_input;
-                    }
-                    Err(next_input) => return Ok((next_input, result)),
+                    Ok((next_input, value)) => match value {
+                        Some(value) => {
+                            result.push(value);
+                            input = next_input;
+                        }
+                        None => return Ok((next_input, result)),
+                    },
+                    Err(next_input) => return Err(next_input),
                 }
             }
         }
@@ -154,16 +159,54 @@ mod combinators {
             }
         }
     }
+
+    pub fn la_parser<P, Q, R>(parser: P, la: Q) -> impl Fn(ParseInput) -> ParseResult<Option<R>>
+    where
+        P: Fn(ParseInput) -> ParseResult<R>,
+        Q: Fn(ParseInput) -> ParseResult<bool>,
+    {
+        move |input| {
+            match la(input) {
+                Ok((next_input, value)) => {
+                    if value {
+                        match parser(next_input) {
+                            Ok((next_input2, value)) => Ok((next_input2, Some(value))),
+                            Err(next_input2) => Err(next_input2),
+                        }
+                    } else {
+                        Ok((next_input, None))
+                    }
+                }
+                Err(next_input) => Err(next_input),
+            }
+
+            //let (next_input,value) = la(input);
+
+            /*and_then(|(next_input,value)|{
+                if value {
+                    match parser(next_input) {
+                        Ok((next_input2, value)) => Ok((next_input2, Some(value))),
+                        Err(next_input2) => Err(next_input2),
+                    }
+                }
+                else {
+                    Ok((input, None))
+                }
+            })*/
+        }
+    }
 }
 
 mod astparser {
     extern crate proc_macro;
+    use super::combinators::{
+        alt, as_pair, as_pair_opt, la_parser, map, one_or_more, ParseInput, ParseResult,
+    };
     use peekmore::PeekMore;
     use proc_macro2::Ident;
     use proc_macro2::Spacing;
     use proc_macro2::TokenStream;
     use proc_macro2::TokenTree;
-    use super::combinators::{alt, as_pair, as_pair_opt, map, one_or_more, ParseInput, ParseResult};
 
     pub struct Grammar {
         rules: Vec<Rule>,
@@ -191,13 +234,13 @@ mod astparser {
 
     pub enum FollowedBy {
         Spacing(Spacing),
-        AnyToken
+        AnyToken,
     }
 
     const COLON: &[(char, FollowedBy)] = &[(':', FollowedBy::AnyToken)];
     const COLON_LT: &[(char, FollowedBy)] = &[
-        (':', FollowedBy::Spacing(proc_macro2::Spacing::Joint)), 
-        ('<', FollowedBy::Spacing(proc_macro2::Spacing::Alone))
+        (':', FollowedBy::Spacing(proc_macro2::Spacing::Joint)),
+        ('<', FollowedBy::Spacing(proc_macro2::Spacing::Alone)),
     ];
     const GT: &[(char, FollowedBy)] = &[('>', FollowedBy::Spacing(proc_macro2::Spacing::Alone))];
     const LT: &[(char, FollowedBy)] = &[('<', FollowedBy::Spacing(proc_macro2::Spacing::Alone))];
@@ -216,8 +259,45 @@ mod astparser {
         }
     }
 
+    pub fn grammar(mut input: ParseInput) -> ParseResult<Grammar> {
+        let rules = one_or_more(la_parser(rule, 
+            |mut input| {
+               TODO: look ahead more compact?
+                let preview = input.peek_range(0, 3);
+                let foo = match preview[0] {
+                    Some(TokenTree::Ident(_)) =>
+                        match preview[1] {
+                            Some(TokenTree::Punct(punct)) => {
+                                if punct.as_char() == '-' {
+                                    match preview[2] {
+                                        Some(TokenTree::Punct(punct)) => {
+                                            if punct.as_char() == '>' {
+                                                true
+                                            }
+                                            else {
+                                                false
+                                            }
+                                        }
+                                        _ => false
+                                    }
+                                }
+                                else {
+                                    false
+                                }
+                            }
+                            _ => false
+                        },
+                    _ => false
+                };
+                ParseResult::Ok((input, foo))
+            }
+
+        ));
+        map(rules, |rules_res| Grammar { rules: rules_res })(input)
+    }
+
     pub fn rule(mut input: ParseInput) -> ParseResult<Rule> {
-        let rhs = one_or_more(rhselement);
+        let rhs = one_or_more(la_parser(rhselement, |_| true));
         let lhs = ident;
         let arrow = match_punct(ARROW);
         let rule_parser = as_pair(lhs, as_pair(arrow, rhs));
@@ -241,9 +321,12 @@ mod astparser {
         map(
             as_pair(
                 ident,
-                as_pair(as_pair(as_pair(match_punct(COLON), match_punct(LT)), ident), match_punct(GT)),
+                as_pair(
+                    as_pair(as_pair(match_punct(COLON), match_punct(LT)), ident),
+                    match_punct(GT),
+                ),
             ),
-            |(ident1, ((_, ident2),_))| Terminal {
+            |(ident1, ((_, ident2), _))| Terminal {
                 name: ident2,
                 member: ident1,
             },
@@ -255,58 +338,47 @@ mod astparser {
     ) -> ParseResult<((Ident, Vec<TokenTree /*COLON*/>), Option<NonTerminal>)> {
         map(
             as_pair_opt(as_pair(ident, match_punct(COLON)), ident),
-            |((ident1, colon), ident2)| 
-            match ident2 {
-                Some(ident2) => ((ident1.clone(), colon), Some(
-                    NonTerminal { 
-                        name: ident2, 
-                        member: ident1 }
-                )),
+            |((ident1, colon), ident2)| match ident2 {
+                Some(ident2) => (
+                    (ident1.clone(), colon),
+                    Some(NonTerminal {
+                        name: ident2,
+                        member: ident1,
+                    }),
+                ),
                 None => ((ident1, colon), None),
             },
-        )(input)           
+        )(input)
     }
 
     pub fn terminal_child(
         prefix: (Ident, Vec<TokenTree /*COLON*/>),
         input: ParseInput,
     ) -> ParseResult<Terminal> {
-       match as_pair(match_punct(LT), as_pair(ident, match_punct(GT)))(input) {
-              Ok((next_input, (_, (ident2, _)))) => {
-                    Ok((next_input, Terminal {
-                        name: ident2,
-                        member: prefix.0,
-                    }))
-              },
-              Err(next_input) => Err(next_input)
-       }
-       
-       /*map(
-         as_pair(match_punct(LT), as_pair(ident, match_punct(GT))),
-         |(_,(ident2, _))| {
-            Terminal {
-                name: ident2,
-                member: prefix.0.clone(),
-            }
-         }
-       )(input)*/
+        match as_pair(match_punct(LT), as_pair(ident, match_punct(GT)))(input) {
+            Ok((next_input, (_, (ident2, _)))) => Ok((
+                next_input,
+                Terminal {
+                    name: ident2,
+                    member: prefix.0,
+                },
+            )),
+            Err(next_input) => Err(next_input),
+        }
     }
 
-   pub fn rhselement(mut input: ParseInput) -> ParseResult<RhsElement> {
+    pub fn rhselement(mut input: ParseInput) -> ParseResult<RhsElement> {
         match alt(try_nonterminal_child, terminal_child)(input) {
             Ok((next_input, (alt1, alt2))) => {
                 if let Some(nt) = alt1 {
                     return Ok((next_input, RhsElement::NonTerminal(nt)));
-                }
-                else if let Some(tm) = alt2 {
+                } else if let Some(tm) = alt2 {
                     return Ok((next_input, RhsElement::Terminal(tm)));
-                }
-                else {
+                } else {
                     return Err(next_input);
                 }
-            },
-            Err(next_input) => return Err(next_input)
-
+            }
+            Err(next_input) => return Err(next_input),
         }
     }
 
@@ -340,7 +412,7 @@ mod astparser {
                             return Err(input);
                         }
                     }
-                    FollowedBy::AnyToken => {}      
+                    FollowedBy::AnyToken => {}
                 }
             }
             let mut result: Vec<TokenTree> = Vec::new();
@@ -351,15 +423,86 @@ mod astparser {
         }
     }
 
-    
-
     mod tests {
         #[cfg(test)]
-        use proc_macro2::{Ident, Span};
+        use super::{
+            grammar, ident, match_punct, nonterminal, rhselement, rule, terminal, terminal_child,
+            ParseInput, ParseInputHelpers, ARROW,
+        };
         #[cfg(test)]
         use crate::astparser::{try_nonterminal_child, RhsElement};
         #[cfg(test)]
-        use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct, nonterminal, terminal, rhselement, terminal_child};
+        use proc_macro2::{Ident, Span, TokenTree};
+
+        /*#[test]
+        fn test_grammar_2_ok() {
+            let str_input = "
+                    Onion -> all:The stuff:<i42>
+                    Cheese -> foo:BarFoo bar:<int> baz:<string>
+                ";
+            let stream_input = str_input.parse().unwrap();
+            let grammar = grammar(ParseInput::from_tkstream(stream_input));
+            assert!(grammar.is_ok());
+            let(_, grammar_value) = grammar.unwrap();
+            assert_eq!(grammar_value.rules.len(), 2);
+        }*/
+
+        #[test]
+        fn test_rule_1_nok() {
+            let str_input = "Cheese -> foo:BarFoo Onion -> buzz:BarFoo";
+            let stream_input = str_input.parse().unwrap();
+            let rule = rule(ParseInput::from_tkstream(stream_input));
+            assert!(rule.is_ok());
+            let (mut next_input, rule_value) = rule.unwrap();
+            assert_eq!(rule_value.lhs.to_string().as_str(), "Cheese");
+            assert_eq!(rule_value.rhs.len(), 1);
+            match &rule_value.rhs[0] {
+                RhsElement::NonTerminal(nt) => {
+                    assert_eq!(nt.name.to_string().as_str(), "BarFoo");
+                    assert_eq!(nt.member.to_string().as_str(), "foo");
+                }
+                _ => assert!(false),
+            }
+            let next = next_input.peek();
+            assert!(next.is_some());
+            let next_value = next.unwrap();
+            match next_value {
+                TokenTree::Ident(ident) => assert_eq!(ident.to_string().as_str(), "Onion"),
+                _ => assert!(false),
+            }
+        }
+
+        #[test]
+        fn test_rule_3_ok() {
+            let str_input = "Cheese -> foo:BarFoo bar:<int> baz:<string>";
+            let stream_input = str_input.parse().unwrap();
+            let rule = rule(ParseInput::from_tkstream(stream_input));
+            assert!(rule.is_ok());
+            let (_, rule_value) = rule.unwrap();
+            assert_eq!(rule_value.lhs.to_string().as_str(), "Cheese");
+            assert_eq!(rule_value.rhs.len(), 3);
+            match &rule_value.rhs[0] {
+                RhsElement::NonTerminal(nt) => {
+                    assert_eq!(nt.name.to_string().as_str(), "BarFoo");
+                    assert_eq!(nt.member.to_string().as_str(), "foo");
+                }
+                _ => assert!(false),
+            }
+            match &rule_value.rhs[1] {
+                RhsElement::Terminal(tm) => {
+                    assert_eq!(tm.name.to_string().as_str(), "int");
+                    assert_eq!(tm.member.to_string().as_str(), "bar");
+                }
+                _ => assert!(false),
+            }
+            match &rule_value.rhs[2] {
+                RhsElement::Terminal(tm) => {
+                    assert_eq!(tm.name.to_string().as_str(), "string");
+                    assert_eq!(tm.member.to_string().as_str(), "baz");
+                }
+                _ => assert!(false),
+            }
+        }
 
         #[test]
         fn test_rhs_element_nonterminal() {
@@ -373,8 +516,8 @@ mod astparser {
                 RhsElement::NonTerminal(nonterminal) => {
                     assert_eq!(nonterminal.name.to_string().as_str(), "BarFoo");
                     assert_eq!(nonterminal.member.to_string().as_str(), "foo");
-                }        
-            }        
+                }
+            }
         }
 
         #[test]
@@ -388,9 +531,9 @@ mod astparser {
                 RhsElement::Terminal(terminal) => {
                     assert_eq!(terminal.name.to_string().as_str(), "string");
                     assert_eq!(terminal.member.to_string().as_str(), "bar");
-                },
-                RhsElement::NonTerminal(_) => assert!(false)        
-            }        
+                }
+                RhsElement::NonTerminal(_) => assert!(false),
+            }
         }
 
         #[test]
@@ -413,9 +556,9 @@ mod astparser {
             let rhs_element = try_nonterminal_child(ParseInput::from_tkstream(stream));
             assert!(rhs_element.is_ok());
             let rhs_value = rhs_element.unwrap();
-            let (member,_) = rhs_value.1.0;
+            let (member, _) = rhs_value.1 .0;
             assert_eq!(member.to_string().as_str(), member_expected);
-            assert!(rhs_value.1.1.is_none());
+            assert!(rhs_value.1 .1.is_none());
         }
 
         #[test]
@@ -426,10 +569,10 @@ mod astparser {
             let rhs_element = try_nonterminal_child(ParseInput::from_tkstream(stream));
             assert!(rhs_element.is_ok());
             let rhs_value = rhs_element.unwrap();
-            let (member,_) = rhs_value.1.0;
+            let (member, _) = rhs_value.1 .0;
             assert_eq!(member.to_string().as_str(), member_expected);
-            assert!(rhs_value.1.1.is_some());
-            let nt_value = rhs_value.1.1.unwrap();
+            assert!(rhs_value.1 .1.is_some());
+            let nt_value = rhs_value.1 .1.unwrap();
             assert_eq!(nt_value.name.to_string().as_str(), "Foobar");
         }
 
