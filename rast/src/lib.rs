@@ -354,10 +354,11 @@ mod astparser {
     
 
     mod tests {
-        use proc_macro2::{Ident, TokenTree, Span};
-
-        use crate::astparser::{try_nonterminal_child, COLON, RhsElement, NonTerminal};
-
+        #[cfg(test)]
+        use proc_macro2::{Ident, Span};
+        #[cfg(test)]
+        use crate::astparser::{try_nonterminal_child, RhsElement};
+        #[cfg(test)]
         use super::{ident, ParseInput, ParseInputHelpers, ARROW, match_punct, nonterminal, terminal, rhselement, terminal_child};
 
         #[test]
