@@ -27,7 +27,7 @@ pub fn rast_ast(item: TokenStream) -> TokenStream {
 mod combinators {
 
     use peekmore::PeekMoreIterator;
-    use proc_macro2::token_stream::IntoIter;
+    use proc_macro2::{token_stream::IntoIter, TokenTree};
 
     // https://bodil.lol/parser-combinators/
     pub type ParseInput = PeekMoreIterator<IntoIter>;
@@ -160,13 +160,30 @@ mod combinators {
         }
     }
 
-    pub fn la_parser<P, Q, R>(parser: P, la: Q) -> impl Fn(ParseInput) -> ParseResult<Option<R>>
+    pub fn la_pred<P>(la_checks: Vec<P>) -> impl Fn(ParseInput) -> ParseResult<bool> 
+    where 
+        P: Fn(&TokenTree) -> bool
+    {
+        move |mut input| {
+            let pred_count = la_checks.len();
+            let preview = input.peek_range(0, pred_count);
+            let check_result = preview.iter().zip(la_checks.iter()).fold(preview.len() == pred_count, |matched, (a,b)|
+                matched && match a {
+                    Some(tt) => b(tt),
+                    None => false
+                }
+            );
+            Ok((input, check_result))
+        }
+    }
+
+    pub fn la_parser<P, Q, R>(parser: P, la_test: Q) -> impl Fn(ParseInput) -> ParseResult<Option<R>>
     where
         P: Fn(ParseInput) -> ParseResult<R>,
         Q: Fn(ParseInput) -> ParseResult<bool>,
     {
         move |input| {
-            match la(input) {
+            match la_test(input) {
                 Ok((next_input, value)) => {
                     if value {
                         match parser(next_input) {
@@ -200,7 +217,7 @@ mod combinators {
 mod astparser {
     extern crate proc_macro;
     use super::combinators::{
-        alt, as_pair, as_pair_opt, la_parser, map, one_or_more, ParseInput, ParseResult,
+        alt, as_pair, as_pair_opt, la_parser, map, one_or_more, la_pred, ParseInput, ParseResult,
     };
     use peekmore::PeekMore;
     use proc_macro2::Ident;
@@ -260,44 +277,25 @@ mod astparser {
     }
 
     pub fn grammar(mut input: ParseInput) -> ParseResult<Grammar> {
-        let rules = one_or_more(la_parser(rule, 
-            |mut input| {
-               TODO: look ahead more compact?
-                let preview = input.peek_range(0, 3);
-                let foo = match preview[0] {
-                    Some(TokenTree::Ident(_)) =>
-                        match preview[1] {
-                            Some(TokenTree::Punct(punct)) => {
-                                if punct.as_char() == '-' {
-                                    match preview[2] {
-                                        Some(TokenTree::Punct(punct)) => {
-                                            if punct.as_char() == '>' {
-                                                true
-                                            }
-                                            else {
-                                                false
-                                            }
-                                        }
-                                        _ => false
-                                    }
-                                }
-                                else {
-                                    false
-                                }
-                            }
-                            _ => false
-                        },
-                    _ => false
-                };
-                ParseResult::Ok((input, foo))
-            }
+        let a: fn(&TokenTree) -> bool = |tt| match tt { &TokenTree::Ident(_) => true, _ => false};
+        let b: fn(&TokenTree) -> bool = |tt| match tt { &TokenTree::Punct(ref punct) => punct.as_char() == '-', _ => false};
+        let c: fn(&TokenTree) -> bool = |tt| match tt { &TokenTree::Punct(ref punct) => punct.as_char() == '>', _ => false};
+        let checkers: Vec<fn(&TokenTree) -> bool> = vec![a, b, c,];
 
-        ));
-        map(rules, |rules_res| Grammar { rules: rules_res })(input)
+        let rule_test = la_pred(checkers);
+        
+        let grammar_parser = one_or_more(la_parser(rule, rule_test));
+        map(grammar_parser, |rules_res| Grammar { rules: rules_res })(input)
     }
 
     pub fn rule(mut input: ParseInput) -> ParseResult<Rule> {
-        let rhs = one_or_more(la_parser(rhselement, |_| true));
+        let a: fn(&TokenTree) -> bool = |tt| match tt { &TokenTree::Ident(_) => true, _ => false};
+        let b: fn(&TokenTree) -> bool = |tt| match tt { &TokenTree::Punct(ref punct) => punct.as_char() == ':', _ => false};
+        let checkers: Vec<fn(&TokenTree) -> bool> = vec![a, b,];
+
+        let rhs_element_test = la_pred(checkers);
+
+        let rhs = one_or_more(la_parser(rhselement, rhs_element_test));
         let lhs = ident;
         let arrow = match_punct(ARROW);
         let rule_parser = as_pair(lhs, as_pair(arrow, rhs));
@@ -434,7 +432,7 @@ mod astparser {
         #[cfg(test)]
         use proc_macro2::{Ident, Span, TokenTree};
 
-        /*#[test]
+        #[test]
         fn test_grammar_2_ok() {
             let str_input = "
                     Onion -> all:The stuff:<i42>
@@ -445,7 +443,7 @@ mod astparser {
             assert!(grammar.is_ok());
             let(_, grammar_value) = grammar.unwrap();
             assert_eq!(grammar_value.rules.len(), 2);
-        }*/
+        }
 
         #[test]
         fn test_rule_1_nok() {
