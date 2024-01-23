@@ -190,16 +190,36 @@ mod tests {
     use proc_macro2::{Ident, Span, TokenTree};
 
     #[test]
-    fn test_grammar_2_ok() {
+    fn test_grammar_2_rules_ok() {
+        let str_input = "
+                Onion -> all:The stuff:<i42>
+                Cheese -> foo:BarFoo bar:<int> baz:<string>";
+        let stream_input = str_input.parse().unwrap();
+        let grammar = grammar(ParseInput::from_tkstream(stream_input));
+        assert!(grammar.is_ok());
+        let(mut input, grammar_value) = grammar.unwrap();
+        assert_eq!(grammar_value.rules.len(), 2);
+        assert!(input.peek().is_none());
+    }
+
+    
+    #[test]
+    fn test_grammar_2_rules_ident_left_ok() {
         let str_input = "
                 Onion -> all:The stuff:<i42>
                 Cheese -> foo:BarFoo bar:<int> baz:<string>
+                Beacon
             ";
         let stream_input = str_input.parse().unwrap();
         let grammar = grammar(ParseInput::from_tkstream(stream_input));
         assert!(grammar.is_ok());
-        let(_, grammar_value) = grammar.unwrap();
+        let(mut input, grammar_value) = grammar.unwrap();
         assert_eq!(grammar_value.rules.len(), 2);
+        assert!(input.peek().is_some());
+        match input.next().unwrap() {
+            TokenTree::Ident(ident) => assert_eq!(ident.to_string().as_str(), "Beacon"),
+            _ => assert!(false),
+        }
     }
 
     #[test]
