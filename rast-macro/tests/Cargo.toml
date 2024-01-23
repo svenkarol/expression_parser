@@ -2,7 +2,5 @@
 name = "foo"
 version = "0.1.0"
 
-[lib]
-
 [dependencies]
 rast = {path = "rast"}

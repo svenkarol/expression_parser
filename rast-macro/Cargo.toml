@@ -1,0 +1,12 @@
+[package]
+name = "rast-macro"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+proc-macro = true
+
+[dependencies]
+peekmore = "1.3.0"
+proc-macro2 = "1.0.67"
+rast = "0.1.0-alpha.0"

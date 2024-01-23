@@ -2,5 +2,8 @@
 resolver = "2"
 members = [
     "rast",
-    "parser"
+    "parser",
+]
+exclude = [
+    "rast-macro"
 ]

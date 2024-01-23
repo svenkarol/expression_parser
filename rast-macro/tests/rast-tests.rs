@@ -1,7 +1,7 @@
-/*#[macro_use]
+#[macro_use]
 extern crate rast;
 
-rast_ast!(
+/*rast_ast!(
     AExp   -> BinExp | Number 
     BinExp -> op: BinAOp left: AExp right: AExp
     BinAOp -> Plus | Minus | Mult | Div
