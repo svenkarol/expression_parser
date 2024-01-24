@@ -1,5 +1,7 @@
 extern crate proc_macro;
 
+use std::str::FromStr;
+
 use peekmore::PeekMore;
 use proc_macro2::TokenStream;
 use proc_macro2::Ident;
@@ -14,6 +16,32 @@ pub trait ParseInputHelpers {
 impl ParseInputHelpers for ParseInput {
     fn from_tkstream(stream: TokenStream) -> Self {
         stream.into_iter().peekmore()
+    }
+}
+
+impl FromStr for Grammar {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let stream: TokenStream = s.parse().unwrap();
+        let grammar = grammar(ParseInput::from_tkstream(stream));
+        match grammar {
+            Ok((_, grammar_value)) => Ok(grammar_value),
+            Err(_) => Err(()),
+        }
+    }
+}
+
+impl FromStr for Rule {
+    type Err = ();
+
+    fn from_str(s: &str) -> Result<Self, Self::Err> {
+        let stream: TokenStream = s.parse().unwrap();
+        let rule = rule(ParseInput::from_tkstream(stream));
+        match rule {
+            Ok((_, rule_value)) => Ok(rule_value),
+            Err(_) => Err(()),
+        }
     }
 }
 
@@ -87,7 +115,7 @@ pub fn terminal(input: ParseInput) -> ParseResult<Terminal> {
     )(input)
 }
 
-pub fn try_nonterminal_child(
+fn try_nonterminal_child(
     input: ParseInput,
 ) -> ParseResult<((Ident, Vec<TokenTree /*COLON*/>), Option<NonTerminal>)> {
     map(
@@ -105,7 +133,7 @@ pub fn try_nonterminal_child(
     )(input)
 }
 
-pub fn terminal_child(
+fn terminal_child(
     prefix: (Ident, Vec<TokenTree /*COLON*/>),
     input: ParseInput,
 ) -> ParseResult<Terminal> {
@@ -121,7 +149,7 @@ pub fn terminal_child(
     }
 }
 
-pub fn rhselement(input: ParseInput) -> ParseResult<RhsElement> {
+fn rhselement(input: ParseInput) -> ParseResult<RhsElement> {
     match alt(try_nonterminal_child, terminal_child)(input) {
         Ok((next_input, (alt1, alt2))) => {
             if let Some(nt) = alt1 {
@@ -147,7 +175,7 @@ pub fn ident(mut input: ParseInput) -> ParseResult<Ident> {
     }
 }
 
-pub fn match_punct(
+fn match_punct(
     to_match: &'static [(char, FollowedBy)],
 ) -> impl Fn(ParseInput) -> ParseResult<Vec<TokenTree>> {
     move |mut input| {
@@ -185,9 +213,46 @@ mod tests {
         ParseInput, ParseInputHelpers, ARROW,
     };
     #[cfg(test)]
-    use crate::rast::astparser::{try_nonterminal_child, RhsElement};
+    use crate::rast::astparser::{try_nonterminal_child, RhsElement, Grammar, Rule};
     #[cfg(test)]
     use proc_macro2::{Ident, Span, TokenTree};
+    #[cfg(test)]
+    use std::str::FromStr;
+    
+    #[test]
+    fn test_rules_from_str_ok() {
+        let str_input = "A -> x:B y:C";
+        let result = Rule::from_str(str_input);
+        assert!(result.is_ok());
+        let rule = result.unwrap();
+        println!("{}", rule.lhs.to_string());
+        assert_eq!(rule.lhs.to_string().as_str(), "A");
+        assert_eq!(rule.rhs.len(), 2);
+        match &rule.rhs[0] {
+            RhsElement::NonTerminal(nt) => {
+                assert_eq!(nt.name.to_string().as_str(), "B");
+                assert_eq!(nt.member.to_string().as_str(), "x");
+            }
+            _ => assert!(false),
+        }
+        match &rule.rhs[1] {
+            RhsElement::NonTerminal(nt) => {
+                assert_eq!(nt.name.to_string().as_str(), "C");
+                assert_eq!(nt.member.to_string().as_str(), "y");
+            }
+            _ => assert!(false),
+        }
+    }
+    
+    #[test]
+    fn test_grammar_from_str_ok() {
+        let str_input = "
+                Onion -> all:The stuff:<i42>
+                Cheese -> foo:BarFoo bar:<int> baz:<string>";
+        let grammar = Grammar::from_str(str_input);
+        assert!(grammar.is_ok());
+        assert_eq!(grammar.unwrap().rules.len(), 2);
+    }
 
     #[test]
     fn test_grammar_2_rules_ok() {
